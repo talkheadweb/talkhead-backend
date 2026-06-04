@@ -1,0 +1,17 @@
+# Prevent copying local dependencies and unnecessary files into the image
+node_modules
+npm-debug.log*
+
+# VCS and environment files
+.git
+.gitignore
+.env*
+
+# Build outputs and coverage
+dist
+build
+coverage
+
+# Docker-related files not needed in build context
+Dockerfile
+docker-compose.yml

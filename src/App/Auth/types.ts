@@ -1,0 +1,58 @@
+import { Types } from "mongoose";
+import z from "zod";
+import { AuthValidation } from "./validation";
+
+// ── Roles ──────────────────────────────────────────────────────────────────
+export enum EUserRole {
+  USER  = "user",
+  ADMIN = "admin",
+}
+
+// ── Document shape (what lives in MongoDB) ────────────────────────────────
+export interface IUser {
+  _id            : Types.ObjectId;
+  name           : string;
+  email          : string;
+  password       : string;
+  role           : EUserRole;
+  isVerified     : boolean;
+  profilePicture : string | null;
+  createdAt      : Date;
+  updatedAt      : Date;
+}
+
+// ── Service-layer DTOs ─────────────────────────────────────────────────────
+export type TRegisterInput = {
+  name     : string;
+  email    : string;
+  password : string;
+  role    ?: EUserRole;
+};
+
+export type TLoginInput = {
+  email    : string;
+  password : string;
+};
+
+export type TLoginResponse = {
+  user         : TUserPublic;
+  accessToken  : string;
+  refreshToken : string;
+};
+
+export type TUpdateProfileInput = {
+  name?: string;
+};
+
+// Safe user shape — password never included
+export type TUserPublic = Omit<IUser, "password">;
+
+// ── Request body types (derived from Zod — single source of truth) ─────────
+export type TRegisterBody          = z.infer<typeof AuthValidation.registerZodSchema>["body"];
+export type TLoginBody             = z.infer<typeof AuthValidation.loginZodSchema>["body"];
+export type TForgotPasswordBody    = z.infer<typeof AuthValidation.forgotPasswordZodSchema>["body"];
+export type TResetPasswordBody     = z.infer<typeof AuthValidation.resetPasswordZodSchema>["body"];
+export type TVerifyEmailBody       = z.infer<typeof AuthValidation.verifyEmailZodSchema>["body"];
+export type TResendVerificationBody= z.infer<typeof AuthValidation.resendVerificationZodSchema>["body"];
+export type TUpdateProfileBody     = z.infer<typeof AuthValidation.updateProfileZodSchema>["body"];
+export type TChangePasswordBody    = z.infer<typeof AuthValidation.changePasswordZodSchema>["body"];

@@ -1,0 +1,11 @@
+.env
+node_modules
+dist
+
+*.lock
+pnpm-lock.yaml
+application-logs
+output
+.DS_Store
+*.ds_store
+graphify-out
