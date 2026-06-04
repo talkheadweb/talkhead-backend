@@ -3,6 +3,14 @@ import { TCustomErrorResponse, TGenericSuccessMessages } from "@/Utils/types/res
 import { Request, Response } from "express";
 import fs from 'fs';
 
+const unlinkSafe = (filePath: string | undefined) => {
+    if (!filePath) return;
+    try {
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    } catch {
+    }
+}
+
 const successResponse = <T, M>(res: Response, data: TGenericSuccessMessages<T, M>) => {
     const property = pickFunction(data, ["message", "data", "statusCode", "meta", "req"])
     const req = property.req as Request;
@@ -44,12 +52,17 @@ const errorResponse = (res: Response, data: TCustomErrorResponse) => {
 const cleanUp = (req: Request) => {
 
     if (req?.file) {
-        fs.unlinkSync(req.file.path);
+        unlinkSafe(req.file.path);
     }
     if (req?.files) {
-        (req.files as Express.Multer.File[]).forEach(file => {
-            fs.unlinkSync(file.path);
-        });
+        const filesValue = req.files as unknown;
+        if (Array.isArray(filesValue)) {
+            filesValue.forEach(file => unlinkSafe((file as Express.Multer.File)?.path));
+        } else if (filesValue && typeof filesValue === "object") {
+            Object.values(filesValue as Record<string, Express.Multer.File[]>).forEach((fileList) => {
+                fileList.forEach(file => unlinkSafe(file?.path));
+            });
+        }
     }
 }
 

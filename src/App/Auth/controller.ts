@@ -1,11 +1,10 @@
 import config from "@/Config";
-import { ENodeEnv } from "@/Config/utils/config.types";
 import CustomError from "@/Utils/errors/customError.class";
 import catchAsync from "@/Utils/helper/catchAsync";
 import { JwtHelper } from "@/Utils/helper/jwtHelper";
 import { sendResponse } from "@/Utils/helper/sendResponse";
-import { CookieOptions, Request, Response } from "express";
-import { COOKIE_NAME } from "./const";
+import { Request, Response } from "express";
+import { COOKIE_NAME, getRefreshTokenCookieOptions } from "./const";
 import { AuthService } from "./service";
 import {
   EUserRole,
@@ -19,13 +18,7 @@ import {
   TVerifyEmailBody,
 } from "./types";
 
-/** httpOnly cookie options for the refresh token */
-const cookieOptions: CookieOptions = {
-  httpOnly: true,
-  secure  : config.node_env === ENodeEnv.PROD,
-  sameSite: "strict",
-  maxAge  : 7 * 24 * 60 * 60 * 1000, // 7 days in ms
-};
+const { set: cookieOptions, clear: clearCookieOptions } = getRefreshTokenCookieOptions(config.auth.cookie);
 
 // ── Public endpoints ───────────────────────────────────────────────────────
 
@@ -34,15 +27,15 @@ const register = catchAsync(async (req: Request, res: Response) => {
   const body = req.body as TRegisterBody;
 
   await AuthService.register({
-    name    : body.name,
-    email   : body.email,
+    name: body.name,
+    email: body.email,
     password: body.password,
-    role    : body.role as EUserRole,
+    role: body.role as EUserRole,
   });
 
   sendResponse.success(res, {
     statusCode: 201,
-    message   : "Account created successfully. Please check your email to verify your account.",
+    message: "Account created successfully. Please check your email to verify your account.",
     req,
   });
 });
@@ -52,7 +45,7 @@ const login = catchAsync(async (req: Request, res: Response) => {
   const body = req.body as TLoginBody;
 
   const { user, accessToken, refreshToken } = await AuthService.login({
-    email   : body.email,
+    email: body.email,
     password: body.password,
   });
 
@@ -61,8 +54,8 @@ const login = catchAsync(async (req: Request, res: Response) => {
 
   sendResponse.success(res, {
     statusCode: 200,
-    message   : "Login successful.",
-    data      : { user, accessToken },
+    message: "Login successful.",
+    data: { user, accessToken },
     req,
   });
 });
@@ -81,11 +74,11 @@ const logout = catchAsync(async (req: Request, res: Response) => {
     }
   }
 
-  res.clearCookie(COOKIE_NAME);
+  res.clearCookie(COOKIE_NAME, clearCookieOptions);
 
   sendResponse.success(res, {
     statusCode: 200,
-    message   : "Logged out successfully.",
+    message: "Logged out successfully.",
     req,
   });
 });
@@ -99,8 +92,8 @@ const refreshToken = catchAsync(async (req: Request, res: Response) => {
 
   sendResponse.success(res, {
     statusCode: 200,
-    message   : "Token refreshed successfully.",
-    data      : { accessToken },
+    message: "Token refreshed successfully.",
+    data: { accessToken },
     req,
   });
 });
@@ -113,7 +106,7 @@ const forgotPassword = catchAsync(async (req: Request, res: Response) => {
   // Always return the same message regardless of whether the email was found
   sendResponse.success(res, {
     statusCode: 200,
-    message   : "If an account with that email exists, a password reset link has been sent.",
+    message: "If an account with that email exists, a password reset link has been sent.",
     req,
   });
 });
@@ -125,7 +118,7 @@ const resetPassword = catchAsync(async (req: Request, res: Response) => {
 
   sendResponse.success(res, {
     statusCode: 200,
-    message   : "Password reset successfully.",
+    message: "Password reset successfully.",
     req,
   });
 });
@@ -137,7 +130,7 @@ const verifyEmail = catchAsync(async (req: Request, res: Response) => {
 
   sendResponse.success(res, {
     statusCode: 200,
-    message   : "Email verified successfully.",
+    message: "Email verified successfully.",
     req,
   });
 });
@@ -149,7 +142,7 @@ const resendVerification = catchAsync(async (req: Request, res: Response) => {
 
   sendResponse.success(res, {
     statusCode: 200,
-    message   : "Verification email sent successfully.",
+    message: "Verification email sent successfully.",
     req,
   });
 });
@@ -159,12 +152,12 @@ const resendVerification = catchAsync(async (req: Request, res: Response) => {
 /** GET /api/v1/auth/me */
 const getMe = catchAsync(async (req: Request, res: Response) => {
   const userId = req.headers["uid"] as string;
-  const user   = await AuthService.getMe(userId);
+  const user = await AuthService.getMe(userId);
 
   sendResponse.success(res, {
     statusCode: 200,
-    message   : "Profile fetched successfully.",
-    data      : user,
+    message: "Profile fetched successfully.",
+    data: user,
     req,
   });
 });
@@ -177,7 +170,7 @@ const getMe = catchAsync(async (req: Request, res: Response) => {
  */
 const updateProfile = catchAsync(async (req: Request, res: Response) => {
   const userId = req.headers["uid"] as string;
-  const body   = req.body as TUpdateProfileBody;
+  const body = req.body as TUpdateProfileBody;
 
   // Require at least one field — multer may not be active for JSON requests
   if (!req.file && !body.name) {
@@ -192,8 +185,8 @@ const updateProfile = catchAsync(async (req: Request, res: Response) => {
 
   sendResponse.success(res, {
     statusCode: 200,
-    message   : "Profile updated successfully.",
-    data      : user,
+    message: "Profile updated successfully.",
+    data: user,
     req,
   });
 });
@@ -201,16 +194,16 @@ const updateProfile = catchAsync(async (req: Request, res: Response) => {
 /** PATCH /api/v1/auth/change-password */
 const changePassword = catchAsync(async (req: Request, res: Response) => {
   const userId = req.headers["uid"] as string;
-  const body   = req.body as TChangePasswordBody;
+  const body = req.body as TChangePasswordBody;
 
   await AuthService.changePassword(userId, body.currentPassword, body.newPassword);
 
   // Clear session cookie — user must log in again
-  res.clearCookie(COOKIE_NAME);
+  res.clearCookie(COOKIE_NAME, clearCookieOptions);
 
   sendResponse.success(res, {
     statusCode: 200,
-    message   : "Password changed successfully. Please log in again.",
+    message: "Password changed successfully. Please log in again.",
     req,
   });
 });

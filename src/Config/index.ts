@@ -12,6 +12,15 @@ const envConfig = z
     appName: z.string(),
     port: z.number().default(9000),
     node_env: z.enum([ENodeEnv.DEV, ENodeEnv.PROD]).default(ENodeEnv.DEV),
+    cors: z.object({
+      allowed_origins: z.array(z.string()).default([]),
+    }),
+    auth: z.object({
+      cookie: z.object({
+        sameSite: z.enum(["lax", "none", "strict"]),
+        secure: z.boolean(),
+      }),
+    }),
     redis: z.object({
       host: z.string(),
       port: z.number().default(6379),
@@ -71,8 +80,8 @@ const envConfig = z
     // request count within that window per key (IP, or IP+email for email routes).
     rate_limit: z.object({
       global: z.object({ windowMs: z.number(), max: z.number() }), // blanket /api/v1 protection
-      auth  : z.object({ windowMs: z.number(), max: z.number() }), // login brute-force
-      email : z.object({ windowMs: z.number(), max: z.number() }), // email-send abuse
+      auth: z.object({ windowMs: z.number(), max: z.number() }), // login brute-force
+      email: z.object({ windowMs: z.number(), max: z.number() }), // email-send abuse
     }),
 
   })
@@ -80,6 +89,24 @@ const envConfig = z
     appName: process.env.APP_NAME,
     port: process.env.PORT ? parseInt(process.env.PORT) : 9000,
     node_env: process.env.NODE_ENV,
+    cors: {
+      allowed_origins: process.env.CORS_ALLOWED_ORIGINS
+        ? process.env.CORS_ALLOWED_ORIGINS.split(",").map((v) => v.trim()).filter(Boolean)
+        : [],
+    },
+    auth: {
+      cookie: {
+        sameSite: (process.env.AUTH_COOKIE_SAMESITE ??
+          (process.env.NODE_ENV === ENodeEnv.PROD ? "none" : "lax")) as "lax" | "none" | "strict",
+        secure:
+          (process.env.AUTH_COOKIE_SAMESITE ??
+            (process.env.NODE_ENV === ENodeEnv.PROD ? "none" : "lax")) === "none"
+            ? true
+            : process.env.AUTH_COOKIE_SECURE !== undefined
+              ? process.env.AUTH_COOKIE_SECURE === "true"
+              : process.env.NODE_ENV === ENodeEnv.PROD,
+      },
+    },
     redis: {
       host: process.env.REDIS_HOST,
       port: process.env.REDIS_PORT ? parseInt(process.env.REDIS_PORT) : 6379,
@@ -129,15 +156,15 @@ const envConfig = z
     rate_limit: {
       global: {
         windowMs: process.env.RATE_LIMIT_GLOBAL_WINDOW_MS ? parseInt(process.env.RATE_LIMIT_GLOBAL_WINDOW_MS) : 15 * 60 * 1000, // 15 min
-        max     : process.env.RATE_LIMIT_GLOBAL_MAX ? parseInt(process.env.RATE_LIMIT_GLOBAL_MAX) : 100,
+        max: process.env.RATE_LIMIT_GLOBAL_MAX ? parseInt(process.env.RATE_LIMIT_GLOBAL_MAX) : 100,
       },
       auth: {
         windowMs: process.env.RATE_LIMIT_AUTH_WINDOW_MS ? parseInt(process.env.RATE_LIMIT_AUTH_WINDOW_MS) : 15 * 60 * 1000, // 15 min
-        max     : process.env.RATE_LIMIT_AUTH_MAX ? parseInt(process.env.RATE_LIMIT_AUTH_MAX) : 5,
+        max: process.env.RATE_LIMIT_AUTH_MAX ? parseInt(process.env.RATE_LIMIT_AUTH_MAX) : 5,
       },
       email: {
         windowMs: process.env.RATE_LIMIT_EMAIL_WINDOW_MS ? parseInt(process.env.RATE_LIMIT_EMAIL_WINDOW_MS) : 60 * 60 * 1000, // 1 hour
-        max     : process.env.RATE_LIMIT_EMAIL_MAX ? parseInt(process.env.RATE_LIMIT_EMAIL_MAX) : 3,
+        max: process.env.RATE_LIMIT_EMAIL_MAX ? parseInt(process.env.RATE_LIMIT_EMAIL_MAX) : 3,
       },
     }
   });
