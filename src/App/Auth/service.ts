@@ -30,13 +30,14 @@ const log = LogService.APPLICATION;
  * - The account cannot log in until the email is verified.
  */
 const register = async (payload: TRegisterInput): Promise<void> => {
-  const { name, email, password, role } = payload;
+  const { name, email, password } = payload;
 
   const existing = await UserModel.findOne({ email });
   if (existing) throw new CustomError("An account with this email already exists.", 409);
 
   const hashedPassword = await HashHelper.generateHashPassword(password);
-  const user = await UserModel.create({ name, email, password: hashedPassword, role });
+  // role defaults to EUserRole.USER in the Mongoose schema — never trust client input
+  const user = await UserModel.create({ name, email, password: hashedPassword });
 
   // Generate and store a 24h verification token, then send the email
   const token      = uuidv4();
@@ -223,14 +224,15 @@ const verifyEmail = async (userId: string, token: string): Promise<void> => {
  * Re-issues a verification token and resends the email.
  *
  * Business rules:
- * - Throws 404 if no account matches the email.
- * - Throws 400 if the account is already verified.
+ * - Returns silently if no account matches (prevents email enumeration — same
+ *   pattern as forgotPassword). The client always sees the same success message.
+ * - Returns silently if the account is already verified (no error exposed).
  * - Generates a fresh token, overwriting any existing Redis entry.
  */
 const resendVerificationEmail = async (email: string): Promise<void> => {
   const user = await UserModel.findOne({ email });
-  if (!user) throw new CustomError("No account found with this email.", 404);
-  if (user.isVerified) throw new CustomError("This email is already verified.", 400);
+  // Silent return — prevents exposing whether this email is registered
+  if (!user || user.isVerified) return;
 
   const token      = uuidv4();
   const verifyLink = `${config.frontend.verify_page_url}?token=${token}&userId=${user._id}`;
@@ -278,20 +280,27 @@ const updateProfile = async (
   if (payload.name !== undefined) updates.name = payload.name;
 
   if (file) {
-    // Delete old profile picture from R2 if one exists (non-blocking on failure)
+    // Fetch the current doc BEFORE uploading the new image.
+    // Using { new: false } in the update below would also work, but reading first
+    // lets us abort early (404) before wasting time on the R2 upload.
     const existing = await UserModel.findById(userId);
     if (!existing) throw new CustomError("User not found.", 404);
 
+    // Upload new image first, then delete the old one.
+    // Order matters: if the upload fails we throw before touching R2, leaving
+    // the user's current picture intact.
+    const { fileUrl } = await uploadProfileImageToR2(file.path, file.originalname);
+    updates.profilePicture = fileUrl;
+
+    // Delete old picture after a successful upload (best-effort, non-blocking)
     if (existing.profilePicture) {
-      await deleteFromR2(existing.profilePicture).catch(() => {
+      deleteFromR2(existing.profilePicture).catch(() => {
         log.warn("Could not delete old profile picture", { userId, url: existing.profilePicture });
       });
     }
-
-    const { fileUrl } = await uploadProfileImageToR2(file.path, file.originalname);
-    updates.profilePicture = fileUrl;
   }
 
+  // Single atomic update — no second findById needed
   const user = await UserModel.findByIdAndUpdate(
     userId,
     { $set: updates },

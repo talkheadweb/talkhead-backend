@@ -37,14 +37,12 @@ process.on('unhandledRejection', (err) => {
 })
 
 process.on('uncaughtException', (err) => {
-    log.error('unhandledException =>', err)
-    setTimeout(() => {
-        if (server) {
-            server.close(() => {
-                process.exit(1)
-            })
-        }
-    }, 5000);
+    log.error('uncaughtException =>', err)
+    // server.close() stops accepting new connections but existing ones can keep
+    // the process alive indefinitely. The hard process.exit(1) below acts as a
+    // guaranteed fallback so we never hang in a broken state.
+    server.close(() => process.exit(1));
+    setTimeout(() => process.exit(1), 5000).unref();
 })
 
 process.on('SIGTERM', () => {

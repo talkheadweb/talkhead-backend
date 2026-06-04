@@ -12,10 +12,12 @@ jest.mock("@/App/Auth/redisService", () => ({
 }));
 
 import { AuthRedisService } from "@/App/Auth/redisService";
-const MockUser  = UserModel as jest.Mocked<typeof UserModel>;
+const MockUser = UserModel as jest.Mocked<typeof UserModel>;
 
-const ENDPOINT  = "/api/v1/auth/verify-email";
-const validBody = { userId: "user123", token: "valid-token" };
+const ENDPOINT = "/api/v1/auth/verify-email";
+// userId must be a valid MongoDB ObjectId (24-hex chars)
+const VALID_USER_ID = "507f1f77bcf86cd799439011";
+const validBody = { userId: VALID_USER_ID, token: "valid-token" };
 
 describe("POST /auth/verify-email", () => {
   beforeEach(() => {
@@ -25,8 +27,8 @@ describe("POST /auth/verify-email", () => {
   it("200 — marks user as verified and deletes token", async () => {
     const res = await request(app).post(ENDPOINT).send(validBody);
     expect(res.status).toBe(200);
-    expect(MockUser.findByIdAndUpdate).toHaveBeenCalledWith("user123", { isVerified: true });
-    expect(AuthRedisService.verifyToken.del).toHaveBeenCalledWith("user123");
+    expect(MockUser.findByIdAndUpdate).toHaveBeenCalledWith(VALID_USER_ID, { isVerified: true });
+    expect(AuthRedisService.verifyToken.del).toHaveBeenCalledWith(VALID_USER_ID);
   });
 
   it("400 — token expired", async () => {
@@ -45,5 +47,10 @@ describe("POST /auth/verify-email", () => {
   it("400 — missing userId", async () => {
     const { userId: _u, ...body } = validBody;
     expect((await request(app).post(ENDPOINT).send(body)).status).toBe(400);
+  });
+
+  it("400 — invalid userId (not a MongoDB ObjectId)", async () => {
+    const res = await request(app).post(ENDPOINT).send({ ...validBody, userId: "not-an-object-id" });
+    expect(res.status).toBe(400);
   });
 });

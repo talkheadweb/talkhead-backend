@@ -36,16 +36,17 @@ describe("POST /auth/resend-verification", () => {
     );
   });
 
-  it("404 — user not found", async () => {
+  it("200 — returns success silently when email not found (prevents email enumeration)", async () => {
     MockUser.findOne.mockResolvedValue(null);
     const res = await request(app).post(ENDPOINT).send({ email: "nobody@example.com" });
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
+    expect(MockMail.sendMail).not.toHaveBeenCalled();
   });
 
-  it("400 — already verified", async () => {
+  it("200 — returns success silently when already verified (prevents email enumeration)", async () => {
     MockUser.findOne.mockResolvedValue(userDoc({ isVerified: true }) as any);
     const res = await request(app).post(ENDPOINT).send({ email: "test@example.com" });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
     expect(MockMail.sendMail).not.toHaveBeenCalled();
   });
 

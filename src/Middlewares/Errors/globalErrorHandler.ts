@@ -20,7 +20,6 @@ const globalErrorHandler: ErrorRequestHandler = (err, req, res, next) => {
         stack: config.node_env === ENodeEnv.DEV && err.stack ? err.stack : undefined,
         req
     }
-    // config.node_env === 'development' && console.log({err})
 
     if (err instanceof CustomError) {
         defaultError.statusCode = err.statusCode
@@ -45,13 +44,18 @@ const globalErrorHandler: ErrorRequestHandler = (err, req, res, next) => {
         defaultError.errorMessages = handler.errorMessages
     }
 
-    LogService.APPLICATION.error('globalErrorHandler ->', {
-        message: err.message,
-        stack: err.stack,
-        statusCode: err.statusCode,
-        errorMessages: err.errorMessages,
-    })
-
+    // Log 5xx as errors (unexpected, needs investigation); 4xx as warnings
+    // (expected client mistakes — not worth alarming on-call).
+    const logPayload = {
+        message  : err.message,
+        stack    : err.stack,
+        statusCode: defaultError.statusCode,
+    };
+    if (defaultError.statusCode >= 500) {
+        LogService.APPLICATION.error('Unhandled server error ->', logPayload);
+    } else {
+        LogService.APPLICATION.warn('Client error ->', logPayload);
+    }
 
     sendResponse.error(res, defaultError)
 }

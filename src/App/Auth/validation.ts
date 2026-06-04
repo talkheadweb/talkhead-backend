@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { EUserRole } from "./types";
+import { isValidMongoID } from "@/Utils/validation/mongoose.validation";
 
 const registerZodSchema = z.object({
   body: z.object({
@@ -15,11 +15,9 @@ const registerZodSchema = z.object({
       .email("Please provide a valid email address."),
     password: z
       .string({ required_error: "Password is required." })
-      .min(6, "Password must be at least 6 characters."),
-    role: z
-      .nativeEnum(EUserRole, { message: "Invalid role." })
-      .optional()
-      .default(EUserRole.USER),
+      .min(8, "Password must be at least 8 characters."),
+    // role is intentionally NOT accepted from clients — always USER on
+    // self-registration. Admin accounts must be promoted by an existing admin.
   }),
 });
 
@@ -46,18 +44,22 @@ const forgotPasswordZodSchema = z.object({
 
 const resetPasswordZodSchema = z.object({
   body: z.object({
-    userId  : z.string({ required_error: "User ID is required." }),
+    userId: z
+      .string({ required_error: "User ID is required." })
+      .refine(isValidMongoID, { message: "Invalid user ID." }),
     token   : z.string({ required_error: "Reset token is required." }),
     password: z
       .string({ required_error: "Password is required." })
-      .min(6, "Password must be at least 6 characters."),
+      .min(8, "Password must be at least 8 characters."),
   }),
 });
 
 const verifyEmailZodSchema = z.object({
   body: z.object({
-    userId: z.string({ required_error: "User ID is required." }),
-    token : z.string({ required_error: "Verification token is required." }),
+    userId: z
+      .string({ required_error: "User ID is required." })
+      .refine(isValidMongoID, { message: "Invalid user ID." }),
+    token: z.string({ required_error: "Verification token is required." }),
   }),
 });
 
@@ -88,7 +90,7 @@ const changePasswordZodSchema = z.object({
     currentPassword: z.string({ required_error: "Current password is required." }).min(1),
     newPassword    : z
       .string({ required_error: "New password is required." })
-      .min(6, "New password must be at least 6 characters."),
+      .min(8, "New password must be at least 8 characters."),
   }),
 });
 

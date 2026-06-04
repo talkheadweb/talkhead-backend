@@ -1,4 +1,5 @@
 import envConfig from '@/Config';
+import { LogService } from '@/Config/logger/utils';
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Request } from 'express';
@@ -10,6 +11,8 @@ import sharp from 'sharp';
 import { v4 as uuidv4 } from 'uuid';
 import CustomError from '../errors/customError.class';
 import { R2Config } from './type';
+
+const log = LogService.APPLICATION;
 
 
 
@@ -68,8 +71,17 @@ export const uploadProfileImageToR2 = async (filePath: string, fileName: string,
 
         await r2Client.send(command);
 
-        // Generate R2 storage URL (not publicly accessible)
-        const fileUrl = `https://${targetBucket}.${envConfig.cloudflare_r2.accountId}.r2.cloudflarestorage.com/${fileKey}`;
+        /*
+         * URL strategy:
+         *  - customDomain set  → bucket is public; return a stable public URL the
+         *    client can use directly: https://{customDomain}/{fileKey}
+         *  - customDomain unset → bucket is private; return the fileKey so callers
+         *    can generate a presigned URL via getPresignedUrl(fileKey) when needed.
+         *    Storing a raw r2.cloudflarestorage.com URL would be inaccessible to clients.
+         */
+        const fileUrl = r2Config.customDomain
+            ? `https://${r2Config.customDomain}/${fileKey}`
+            : fileKey;
 
         // Clean up local file
         fs.unlinkSync(filePath);
@@ -127,7 +139,7 @@ export const deleteFileByKey = async (fileKey: string, bucketName?: string): Pro
             Key: fileKey,
         }));
 
-        console.log(`Successfully deleted file from R2 bucket '${targetBucket}':`, fileKey);
+        log.info('Deleted file from R2', { bucket: targetBucket, key: fileKey });
     } catch (error) {
         throw new CustomError(`Failed to delete from R2: ${error instanceof Error ? error.message : 'Unknown error'}`, 500);
     }
@@ -205,7 +217,7 @@ export const deleteFromR2 = async (fileKeyOrUrl: string): Promise<void> => {
             Key: fileKey,
         }));
 
-        console.log(`Successfully deleted file from R2 bucket '${targetBucket}':`, fileKey);
+        log.info('Deleted file from R2', { bucket: targetBucket, key: fileKey });
     } catch (error) {
         throw new CustomError(`Failed to delete from R2: ${error instanceof Error ? error.message : 'Unknown error'}`, 500);
     }

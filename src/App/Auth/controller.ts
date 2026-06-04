@@ -7,7 +7,6 @@ import { Request, Response } from "express";
 import { COOKIE_NAME, getRefreshTokenCookieOptions } from "./const";
 import { AuthService } from "./service";
 import {
-  EUserRole,
   TChangePasswordBody,
   TForgotPasswordBody,
   TLoginBody,
@@ -30,7 +29,6 @@ const register = catchAsync(async (req: Request, res: Response) => {
     name: body.name,
     email: body.email,
     password: body.password,
-    role: body.role as EUserRole,
   });
 
   sendResponse.success(res, {

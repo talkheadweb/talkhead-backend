@@ -51,9 +51,18 @@ describe("POST /auth/register", () => {
     );
   });
 
-  it("default role is 'user'", async () => {
+  it("role is never accepted from the client — always defaults to USER in the schema", async () => {
     await request(app).post(ENDPOINT).send(validBody);
-    expect(MockUser.create).toHaveBeenCalledWith(expect.objectContaining({ role: "user" }));
+    // role must NOT be passed to create() — the Mongoose schema default handles it
+    expect(MockUser.create).toHaveBeenCalledWith(
+      expect.not.objectContaining({ role: expect.anything() }),
+    );
+  });
+
+  it("201 — unknown role field in body is silently ignored (not a validation error)", async () => {
+    // role is stripped from the schema, so any value is simply dropped
+    const res = await request(app).post(ENDPOINT).send({ ...validBody, role: "superadmin" });
+    expect(res.status).toBe(201);
   });
 
   it("400 — name shorter than 2 characters", async () => {
@@ -66,13 +75,8 @@ describe("POST /auth/register", () => {
     expect(res.status).toBe(400);
   });
 
-  it("400 — password too short", async () => {
+  it("400 — password too short (less than 8 characters)", async () => {
     const res = await request(app).post(ENDPOINT).send({ ...validBody, password: "123" });
-    expect(res.status).toBe(400);
-  });
-
-  it("400 — invalid role", async () => {
-    const res = await request(app).post(ENDPOINT).send({ ...validBody, role: "superadmin" });
     expect(res.status).toBe(400);
   });
 

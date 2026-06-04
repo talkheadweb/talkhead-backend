@@ -8,49 +8,32 @@ const unlinkSafe = (filePath: string | undefined) => {
     try {
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     } catch {
+        // Ignore — temp file may already be cleaned up
     }
 }
 
 const successResponse = <T, M>(res: Response, data: TGenericSuccessMessages<T, M>) => {
-    const property = pickFunction(data, ["message", "data", "statusCode", "meta", "req"])
+    const property = pickFunction(data, ["message", "data", "statusCode", "meta", "req"]);
     const req = property.req as Request;
     delete property.req;
 
     cleanUp(req);
 
-    const responsePayload = {
-        success: true,
-        ...property
-        // message: data.message || null,
-        // data: data.data,
-        // meta: data?.meta || null
-    }
-    res.status(data.statusCode).json(responsePayload)
+    res.status(data.statusCode).json({ success: true, ...property });
 }
 
 const errorResponse = (res: Response, data: TCustomErrorResponse) => {
-
-    const property = pickFunction(data, ["errorMessages", "message", "statusCode", "stack", "req"])
+    const property = pickFunction(data, ["errorMessages", "message", "statusCode", "stack", "req"]);
 
     const req = property.req as Request;
     delete property.req;
 
     cleanUp(req);
 
-    const responsePayload = {
-        success: false,
-        ...property
-        // message: data.message,
-        // errorMessages: data.errorMessages,
-        // stack: data.stack,
-        // statusCode: data.statusCode
-    }
-    res.status(data.statusCode).json(responsePayload)
+    res.status(data.statusCode).json({ success: false, ...property });
 }
 
-
 const cleanUp = (req: Request) => {
-
     if (req?.file) {
         unlinkSafe(req.file.path);
     }

@@ -6,24 +6,23 @@ import { v4 as uuidv4 } from 'uuid';
 import { allowedMimes } from "./type";
 import CustomError from '../errors/customError.class';
 
-// Multer configuration for temporary file storage
+// Create the temp-uploads directory once at module load time, not on each request.
+// This avoids a synchronous fs check on every multipart upload.
+const UPLOAD_DIR = path.join(process.cwd(), 'temp-uploads');
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
 const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const uploadDir = path.join(process.cwd(), 'temp-uploads');
-        // Create directory if it doesn't exist
-        if (!fs.existsSync(uploadDir)) {
-            fs.mkdirSync(uploadDir, { recursive: true });
-        }
-        cb(null, uploadDir);
+    destination: (_req, _file, cb) => {
+        cb(null, UPLOAD_DIR);
     },
-    filename: (req, file, cb) => {
+    filename: (_req, file, cb) => {
         const uniqueName = `${uuidv4()}-${Date.now()}${path.extname(file.originalname)}`;
         cb(null, uniqueName);
     }
 });
 
 // File filter for images only
-const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+const fileFilter = (_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
     if (allowedMimes.includes(file.mimetype)) {
         cb(null, true);
     } else {
@@ -31,11 +30,11 @@ const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilt
     }
 };
 
-// Multer instance
+// Multer instance — 2 MB limit, images only
 export const upload = multer({
     storage,
     fileFilter,
     limits: {
-        fileSize: 2 * 1024 * 1024, // 2MB limit
+        fileSize: 2 * 1024 * 1024,
     }
 });

@@ -8,6 +8,7 @@ import morganMiddleware from "@/Middlewares/Debug/morganMiddleware";
 import globalErrorHandler from "@/Middlewares/Errors/globalErrorHandler";
 import notFoundHandler from "@/Middlewares/Errors/notFoundHandler";
 import { swaggerSpec } from "@/Config/swagger";
+import { ENodeEnv } from "@/Config/utils/config.types";
 import config from "@/Config";
 import cookieParser from "cookie-parser";
 import cors from "cors";
@@ -33,24 +34,32 @@ app.use(cookieParser());
 app.use(cors({
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);
-    if (allowedOrigins.length === 0) return cb(null, true);
+    // If no origins are configured, deny all cross-origin requests (fail closed).
+    // Set CORS_ALLOWED_ORIGINS=* explicitly to allow all origins in development.
+    if (allowedOrigins.length === 0) return cb(new Error("Not allowed by CORS"));
     if (allowedOrigins.includes(origin)) return cb(null, true);
     return cb(new Error("Not allowed by CORS"));
   },
   credentials: true,
 }));
 
-// ── API documentation ──────────────────────────────────────────────────────
-app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
-  customSiteTitle: "talkhead API Docs",
-  swaggerOptions  : { persistAuthorization: true },
-}));
+// ── API documentation (dev only) ───────────────────────────────────────────
+// Swagger UI is disabled in production to avoid exposing internal API shape.
+// To re-enable in prod, add authentication in front of this route first.
+if (config.node_env !== ENodeEnv.PROD) {
+  app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+    customSiteTitle: "talkhead API Docs",
+    swaggerOptions  : { persistAuthorization: true },
+  }));
+}
 
 // ── Application routes ─────────────────────────────────────────────────────
 app.use("/", configRoutes);
 
 // ── Error handlers (must be last) ─────────────────────────────────────────
-app.use(globalErrorHandler);
+// notFoundHandler is a regular middleware — must come BEFORE globalErrorHandler.
+// globalErrorHandler is a 4-argument error handler — must be absolute last.
 app.use(notFoundHandler);
+app.use(globalErrorHandler);
 
 export default app;

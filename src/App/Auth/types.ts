@@ -26,7 +26,7 @@ export type TRegisterInput = {
   name     : string;
   email    : string;
   password : string;
-  role    ?: EUserRole;
+  // role is not accepted at registration — always defaults to USER
 };
 
 export type TLoginInput = {

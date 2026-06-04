@@ -17,8 +17,10 @@ import { AuthRedisService } from "@/App/Auth/redisService";
 const MockUser = UserModel  as jest.Mocked<typeof UserModel>;
 const MockHash = HashHelper as jest.Mocked<typeof HashHelper>;
 
-const ENDPOINT  = "/api/v1/auth/reset-password";
-const validBody = { userId: "user123", token: "valid-token", password: "newPassword123" };
+const ENDPOINT = "/api/v1/auth/reset-password";
+// userId must be a valid MongoDB ObjectId (24-hex chars)
+const VALID_USER_ID = "507f1f77bcf86cd799439011";
+const validBody = { userId: VALID_USER_ID, token: "valid-token", password: "newPassword123" };
 
 describe("POST /auth/reset-password", () => {
   beforeEach(() => {
@@ -29,8 +31,8 @@ describe("POST /auth/reset-password", () => {
   it("200 — resets password and deletes Redis token", async () => {
     const res = await request(app).post(ENDPOINT).send(validBody);
     expect(res.status).toBe(200);
-    expect(MockUser.findByIdAndUpdate).toHaveBeenCalledWith("user123", { password: "new-hashed" });
-    expect(AuthRedisService.resetToken.del).toHaveBeenCalledWith("user123");
+    expect(MockUser.findByIdAndUpdate).toHaveBeenCalledWith(VALID_USER_ID, { password: "new-hashed" });
+    expect(AuthRedisService.resetToken.del).toHaveBeenCalledWith(VALID_USER_ID);
   });
 
   it("400 — token expired", async () => {
@@ -50,7 +52,12 @@ describe("POST /auth/reset-password", () => {
     expect((await request(app).post(ENDPOINT).send(body)).status).toBe(400);
   });
 
-  it("400 — password too short", async () => {
+  it("400 — invalid userId (not a MongoDB ObjectId)", async () => {
+    const res = await request(app).post(ENDPOINT).send({ ...validBody, userId: "not-an-id" });
+    expect(res.status).toBe(400);
+  });
+
+  it("400 — password too short (less than 8 characters)", async () => {
     expect((await request(app).post(ENDPOINT).send({ ...validBody, password: "123" })).status).toBe(400);
   });
 });
