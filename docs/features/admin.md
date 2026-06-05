@@ -37,27 +37,33 @@ The token must belong to a user with `role: "admin"`. Any other role receives **
 
 ### `GET /admin/users` — List Users
 
-Returns a paginated list of users with optional filtering and sorting.
+Returns a paginated, searchable, filterable list of users.
+
+Follows the project-standard [query/filter pattern](../patterns/query-filter.md).
 
 **Query parameters**
 
-| Param        | Type    | Default | Description                                    |
-|--------------|---------|---------|------------------------------------------------|
-| `page`       | integer | `1`     | Page number                                    |
-| `limit`      | integer | `10`    | Items per page (max 100)                       |
-| `sortBy`     | string  | `createdAt` | Field to sort by                           |
-| `sortOrder`  | `asc`/`desc` | `desc` | Sort direction                          |
-| `search`     | string  | —       | Full-text search on `name` and `email`         |
-| `role`       | `user`/`admin` | — | Filter by role                           |
-| `isVerified` | boolean | —       | Filter by verification status                  |
-| `isActive`   | boolean | —       | Filter by active/suspended status              |
+| Param        | Type              | Default      | Description |
+|--------------|-------------------|--------------|-------------|
+| `page`       | integer           | `1`          | Page number |
+| `limit`      | integer           | `10`         | Items per page |
+| `sortBy`     | string            | `createdAt`  | Any user field |
+| `sortOrder`  | `asc` / `desc`    | `desc`       | Sort direction |
+| `search`     | string            | —            | Regex search on `name`, `email`; exact `_id` match if value is a valid ObjectId |
+| `role`       | `user` / `admin`  | —            | Filter by role (String — case-insensitive regex) |
+| `isVerified` | `true` / `false`  | —            | Filter by email verification status |
+| `isActive`   | `true` / `false`  | —            | Filter by active/suspended status |
+
+**Search behaviour:** `?search=alice` matches any user whose `name` or `email` contains "alice" (case-insensitive). If the value is also a valid MongoDB ObjectId, an `_id` exact-match is added to the `$or`.
+
+**Filter behaviour:** filters are combined with `$and`. Each filter key's type is read from the Mongoose schema at runtime — `String` → regex, `Boolean` → strict `true`/`false`, etc.
 
 **Response 200**
 
 ```json
 {
   "success": true,
-  "message": "Users retrieved successfully",
+  "message": "Users fetched successfully.",
   "data": [ { ...userPublic } ],
   "meta": { "page": 1, "limit": 10, "total": 42, "totalPages": 5 }
 }
@@ -182,16 +188,16 @@ Permanently removes a user account and revokes their active session.
 
 ```
 src/App/Admin/
-  types.ts          # TListUsersQuery, TAdminCreateUserBody, TAdminUpdateUserBody, TAdminChangePasswordBody
+  types.ts          # AdminUserSearchKeys, AdminUserFilterKeys, TListUsersPayload, body DTOs
   validation.ts     # Zod schemas for all endpoints
-  service.ts        # AdminService — business logic
+  service.ts        # AdminService — business logic + query/filter loop
   controller.ts     # Request/response handlers
   routes.ts         # adminRouter (auth guard applied at router level)
   admin.swagger.ts  # OpenAPI path definitions
 
 __tests__/Admin/
   _helpers.ts                  # Shared tokens, mockUserDoc, VALID_ID, INVALID_ID
-  list-users.test.ts           # 4 cases
+  list-users.test.ts           # 4 cases (mock preserves real schema for filter loop)
   get-user.test.ts             # 5 cases
   create-user.test.ts          # 7 cases
   update-user.test.ts          # 8 cases

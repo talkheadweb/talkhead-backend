@@ -278,77 +278,101 @@ App: `node:22-alpine` runs as non-root `node` user. Redis: `redis:7.4-alpine`. D
 
 ## Search / filter / pagination pattern
 
-Every list endpoint **must** follow this two-layer pattern. Never pass raw `req.query` to a service.
+**This is the project-wide standard. Every list endpoint must follow it exactly.**
+Full reference: [`docs/patterns/query-filter.md`](docs/patterns/query-filter.md)
 
-### Controller layer
+### 1 — Define key constants in `types.ts`
 
-Use `queryOptimization<TModel>(req, modelFilterKeys, extraFilterKeys)` to extract a structured `IQueryItems<T>` payload and pass it to the service:
+```ts
+// Fields searched with regex $or (always String type)
+export const FeatureSearchKeys: (keyof IModel)[] = ["name", "email"];
+
+// Fields available for discrete filtering — type auto-derived from Mongoose schema
+export const FeatureFilterKeys: (keyof IModel)[] = ["role", "isVerified", "isActive"];
+
+// Extra keys NOT on the model schema (computed fields, join keys) — usually empty
+export const FeatureExtraFilterKeys: string[] = [];
+
+// Payload type from controller → service
+export type TListPayload = IQueryItems<Partial<IModel>>;
+```
+
+### 2 — Controller: call `queryOptimization`, pass payload to service
 
 ```ts
 import { queryOptimization } from "@/Utils/helper/queryOptimize";
-import { IUser } from "@/App/Auth/types";
-
-// Fields the service will filter by (picked from req.query)
-const FilterKeys: (keyof IUser)[] = [];          // typed model fields
-const ExtraKeys  = ["role", "isVerified"] as const; // string extras (booleans, enums…)
 
 const listItems = catchAsync(async (req, res) => {
-  const payload = queryOptimization<IUser>(req, FilterKeys, [...ExtraKeys]);
-  const { items, meta } = await SomeService.list(payload);
+  const payload = queryOptimization<IModel>(req, FeatureFilterKeys, FeatureExtraFilterKeys);
+  const { items, meta } = await FeatureService.list(payload);
   sendResponse.success(res, { statusCode: 200, message: "...", data: items, meta, req });
 });
 ```
 
-### Service layer
-
-Receive `IQueryItems<Partial<TModel>>` and use the helper functions for pagination and sorting. Build MongoDB filter conditions manually from `filterFields`:
+### 3 — Service: build `$and` conditions array
 
 ```ts
-import { calculatePagination, manageSorting } from "@/Utils/helper/queryOptimize";
-import { IQueryItems } from "@/Utils/types/query.type";
+import { calculatePagination, manageSorting, MongoQueryHelper } from "@/Utils/helper/queryOptimize";
+import { Types } from "mongoose";
 
-const list = async (query: IQueryItems<Partial<IUser>>) => {
+const list = async (query: TListPayload) => {
   const { page, limit, skip } = calculatePagination(query.paginationFields);
-  const { sortBy, sortOrder } = manageSorting<IUser>(query.sortFields);
-  const { search }            = query.searchFields as { search?: string };
-  const filters               = query.filterFields as Record<string, string | undefined>;
+  const { sortBy, sortOrder } = manageSorting<IModel>(query.sortFields);
+  const { search }   = query.searchFields as { search?: string };
+  const filterFields = query.filterFields as Record<string, string>;
 
-  const mongoFilter: Record<string, unknown> = {};
+  const queryConditions: Record<string, unknown>[] = [];
 
-  // full-text search across multiple fields
+  // Search — loop over SearchKeys, build $or with regex per field
   if (search) {
-    mongoFilter.$or = [
-      { name:  { $regex: search, $options: "i" } },
-      { email: { $regex: search, $options: "i" } },
-    ];
+    const orConditions = FeatureSearchKeys.map(key =>
+      MongoQueryHelper("String", String(key), search),
+    );
+    if (Types.ObjectId.isValid(search)) orConditions.push({ _id: String(search) });
+    queryConditions.push({ $or: orConditions });
   }
 
-  // boolean/enum filters that arrive as strings in query params
-  if (filters.role       !== undefined) mongoFilter.role       = filters.role;
-  if (filters.isVerified !== undefined) mongoFilter.isVerified = filters.isVerified === "true";
+  // Filters — loop over FilterKeys, derive type from Mongoose schema automatically
+  for (const key of FeatureFilterKeys) {
+    const value = filterFields[String(key)];
+    if (!value) continue;
 
-  // For typed field filters use MongoQueryHelper:
-  //   mongoFilter.price = MongoQueryHelper("Number", "price", filters.price!)
-  //   mongoFilter.date  = MongoQueryHelper("Date",   "date",  filters.date!)
+    // Add a custom override BEFORE the default when a key needs complex logic:
+    // if (key === 'tags') { queryConditions.push({ tags: { $in: value.split(',') } }); continue; }
+
+    const instance = Model.schema.path(String(key))?.instance as Parameters<typeof MongoQueryHelper>[0] | undefined;
+    if (instance) queryConditions.push(MongoQueryHelper(instance, String(key), value));
+  }
+
+  const mongoQuery = queryConditions.length ? { $and: queryConditions } : {};
 
   const [docs, total] = await Promise.all([
-    Model.find(mongoFilter).sort({ [String(sortBy)]: sortOrder === "asc" ? 1 : -1 }).skip(skip).limit(limit).lean(),
-    Model.countDocuments(mongoFilter),
+    Model.find(mongoQuery).sort({ [String(sortBy)]: sortOrder }).skip(skip).limit(limit).lean(),
+    Model.countDocuments(mongoQuery),
   ]);
 
   return { items: docs, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
 };
 ```
 
-### Key types
+### Key rules
 
-| Type / helper | Location | Purpose |
+- **Never** write `if (filters.x !== undefined) filter.x = ...` chains — use the key loop
+- **Never** hardcode `MongoQueryHelper` types — read them from `schema.path(key).instance`
+- Mongoose instance names (`"String"`, `"Boolean"`, `"Number"`, `"Date"`, `"ObjectId"`) are the same strings `MongoQueryHelper` expects — no translation map needed
+- `.sort({ [sortBy]: sortOrder })` — Mongoose accepts `"asc"` / `"desc"` directly, no `1 | -1` conversion
+- Use `$and: queryConditions` — not a flat filter object — so each condition is composable and debuggable
+- Custom / complex conditions: add an `if (key === '...')` block with `continue` before the schema-default line
+
+### Key types & helpers
+
+| Export | Location | Purpose |
 |---|---|---|
-| `IQueryItems<T>` | `Utils/types/query.type` | Structured query payload (search, filter, pagination, sort) |
-| `queryOptimization<T>()` | `Utils/helper/queryOptimize` | Extracts `IQueryItems` from `req` |
-| `calculatePagination()` | `Utils/helper/queryOptimize` | Converts `{page?,limit?}` → `{page,limit,skip}` |
-| `manageSorting<T>()` | `Utils/helper/queryOptimize` | Converts `{sortBy?,sortOrder?}` → normalised sort |
-| `MongoQueryHelper()` | `Utils/helper/queryOptimize` | Converts a query string value into a MongoDB filter fragment (String/Number/Boolean/Date/ObjectId/NumberRange) |
+| `IQueryItems<T>` | `Utils/types/query.type` | Structured payload: search · filter · pagination · sort |
+| `queryOptimization<T>()` | `Utils/helper/queryOptimize` | Extracts `IQueryItems` from `req.query` |
+| `calculatePagination()` | `Utils/helper/queryOptimize` | `{page?,limit?}` → `{page,limit,skip}` |
+| `manageSorting<T>()` | `Utils/helper/queryOptimize` | `{sortBy?,sortOrder?}` → normalised sort (`"asc"`/`"desc"`) |
+| `MongoQueryHelper()` | `Utils/helper/queryOptimize` | Builds a MongoDB filter fragment — String/Number/NumberRange/Boolean/Date/ObjectId |
 
 ---
 
