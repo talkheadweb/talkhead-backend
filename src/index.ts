@@ -28,6 +28,7 @@ const main = async () => {
     await bootstrap();
     server.listen(port, () => {
       log.info(`Server listening on port ${port}  →  http://localhost:${port}`);
+      log.info(`Api docs available at http://localhost:${port}/api/docs`);
     });
   } catch (e) {
     log.error("Startup failed", e as any);
