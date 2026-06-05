@@ -11,7 +11,7 @@ The server crashes at startup if any required variable is missing (Zod validatio
 
 | Variable | Example | Description |
 |---|---|---|
-| `APP_NAME` | `talkhead` | Application name (used in email subjects, logs) |
+| `APP_NAME` | `express-ts-starter` | Application name (used in email subjects, logs) |
 | `NODE_ENV` | `production` | `development` \| `production` |
 | `BACKEND_BASE_URL` | `https://api.example.com` | Full base URL of this server (used in OAuth callback URLs) |
 | `MONGO_URI` | `mongodb+srv://...` | MongoDB connection string |
@@ -106,7 +106,7 @@ pnpm start          # run dist/index.js
 Or with a process manager:
 ```bash
 pnpm install -g pm2
-pm2 start dist/index.js --name talkhead-backend
+pm2 start dist/index.js --name express-ts-starter
 pm2 save
 pm2 startup
 ```

@@ -1,4 +1,4 @@
-# talkhead-backend
+# express-ts-starter
 
 Production-ready Node.js / Express / TypeScript REST API starter.
 

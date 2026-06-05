@@ -1,5 +1,5 @@
 {
-  "name": "talkhead-backend",
+  "name": "express-ts-starter",
   "version": "1.0.0",
   "main": "dist/index.js",
   "license": "MIT",

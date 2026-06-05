@@ -5,8 +5,6 @@
 */
 
 import "@/App/Auth/social/strategies/google.strategy"; // registers passport strategies (side-effect)
-import socialRouter from "@/App/Auth/social/routes";
-import { globalLimiter } from "@/Middlewares/RateLimit";
 import morganMiddleware from "@/Middlewares/Debug/morganMiddleware";
 import passport from "passport";
 import globalErrorHandler from "@/Middlewares/Errors/globalErrorHandler";
@@ -53,21 +51,12 @@ app.use(cors({
 // To re-enable in prod, add authentication in front of this route first.
 if (config.node_env !== ENodeEnv.PROD) {
   app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
-    customSiteTitle: "talkhead API Docs",
+    customSiteTitle: "express-ts-starter API Docs",
     swaggerOptions  : { persistAuthorization: true },
   }));
 }
 
-// ── Social / OAuth routes ──────────────────────────────────────────────────
-// Mounted directly here (not through configRoutes) because OAuth is a
-// browser-redirect flow, not a JSON API.  The URLs are:
-//   GET /api/v1/auth/social/google          → redirect to Google
-//   GET /api/v1/auth/social/google/callback → receive Google redirect
-// Adding a new provider = one new .strategy.ts import above + routes in
-// src/App/Auth/social/routes.ts. Nothing else changes.
-app.use("/api/v1/auth/social", globalLimiter, socialRouter);
-
-// ── JSON API routes ────────────────────────────────────────────────────────
+// ── Application routes ─────────────────────────────────────────────────────
 app.use("/", configRoutes);
 
 // ── Error handlers (must be last) ─────────────────────────────────────────

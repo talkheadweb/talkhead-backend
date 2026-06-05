@@ -2,7 +2,7 @@
 
 ## Overview
 
-talkhead-backend is a stateless REST API. Every request is authenticated via a short-lived JWT access token. Longer-lived refresh tokens are stored in Redis so they can be revoked instantly.
+express-ts-starter is a stateless REST API. Every request is authenticated via a short-lived JWT access token. Longer-lived refresh tokens are stored in Redis so they can be revoked instantly.
 
 ```
 Client

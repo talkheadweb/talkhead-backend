@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**talkhead-backend** — A production-ready Node.js/Express/TypeScript REST API backend starter.
+**express-ts-starter** — A production-ready Node.js/Express/TypeScript REST API backend starter.
 
 Stack: Express · TypeScript · MongoDB (Mongoose) · Redis (ioredis) · Zod · Winston · Cloudflare R2 · Resend · pnpm
 
