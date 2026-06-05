@@ -7,7 +7,7 @@ import CustomError from "@/Utils/errors/customError.class";
 import { HashHelper } from "@/Utils/helper/hashHelper";
 import { calculatePagination, manageSorting, MongoQueryHelper } from "@/Utils/helper/queryOptimize";
 import { TMeta } from "@/Utils/types/query.type";
-import { Types } from "mongoose";   // needed for ObjectId search validation
+import { Types } from "mongoose"; // needed for ObjectId search validation
 import { AdminUserFilterKeys, AdminUserSearchKeys, TAdminCreateUserBody, TAdminUpdateUserBody, TListUsersPayload } from "./types";
 
 const log = LogService.APPLICATION;
@@ -19,7 +19,7 @@ const listUsers = async (
   const { page, limit, skip } = calculatePagination(query.paginationFields);
   const { sortBy, sortOrder } = manageSorting<IUser>(query.sortFields);
 
-  const { search }   = query.searchFields as { search?: string };
+  const { search } = query.searchFields as { search?: string };
   const filterFields = query.filterFields as Record<string, string>;
 
   const queryConditions: Record<string, unknown>[] = [];
@@ -28,9 +28,10 @@ const listUsers = async (
   // Loop over AdminUserSearchKeys — every key is treated as a regex String match.
   // ObjectId search is a special case: only add _id if the value is a valid ObjectId.
   if (search) {
-    const orConditions: Record<string, unknown>[] = AdminUserSearchKeys.map(key =>
-      MongoQueryHelper("String", String(key), search),
-    );
+    const orConditions: Record<string, unknown>[] = AdminUserSearchKeys.map(key => {
+      if (key === "_id" && !Types.ObjectId.isValid(search)) return {};
+      return MongoQueryHelper("String", String(key), search);
+    });
     if (Types.ObjectId.isValid(search)) orConditions.push({ _id: String(search) });
     queryConditions.push({ $or: orConditions });
   }
@@ -67,7 +68,7 @@ const listUsers = async (
 
   return {
     users: users.map(u => toPublicUser(u as any)),
-    meta : { page, limit, total, totalPages: Math.ceil(total / limit) },
+    meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
   };
 };
 
@@ -89,11 +90,11 @@ const createUser = async (payload: TAdminCreateUserBody): Promise<TUserPublic> =
   if (existing) throw new CustomError("An account with this email already exists.", 409);
 
   const hashed = await HashHelper.generateHashPassword(payload.password);
-  const user   = await UserModel.create({
-    name      : payload.name,
-    email     : payload.email,
-    password  : hashed,
-    role      : payload.role,
+  const user = await UserModel.create({
+    name: payload.name,
+    email: payload.email,
+    password: hashed,
+    role: payload.role,
     isVerified: true,   // admin-created accounts skip email verification
   });
 
@@ -108,7 +109,7 @@ const createUser = async (payload: TAdminCreateUserBody): Promise<TUserPublic> =
  * so they are kicked out of any active session.
  */
 const updateUser = async (
-  userId : string,
+  userId: string,
   payload: TAdminUpdateUserBody,
 ): Promise<TUserPublic> => {
   if (payload.email) {

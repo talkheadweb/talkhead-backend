@@ -69,26 +69,31 @@ const authenticate = catchAsync(async (req: Request, res: Response, next: NextFu
     throw new CustomError("Session expired. Please log in again.", 401);
   }
 
+  // Normalise uid to a plain hex string.
+  // Redis keys are stored via user._id.toString() (plain hex), so we must match
+  // that format regardless of how the JWT payload serialised the ObjectId.
+  const uid = String(refreshPayload.uid);
+
   // Confirm the refresh token is still live in Redis (revocation check)
-  const stored = await AuthRedisService.refreshToken.get(refreshPayload.uid as string);
+  const stored = await AuthRedisService.refreshToken.get(uid);
   if (!stored || stored !== refreshToken)
     throw new CustomError("Session expired. Please log in again.", 401);
 
   // Issue new access token and set it as a cookie — browser stores it automatically
   const newAccessToken = JwtHelper.signAccessToken({
-    uid  : refreshPayload.uid,
+    uid,
     email: refreshPayload.email,
     role : refreshPayload.role,
   });
   res.cookie(ACCESS_COOKIE_NAME, newAccessToken, accessCookieOptions);
 
   req.user = {
-    uid  : String(refreshPayload.uid),
+    uid,
     email: refreshPayload.email as string,
     role : refreshPayload.role  as string,
   };
 
-  log.info("Access token silently refreshed", { uid: refreshPayload.uid });
+  log.info("Access token silently refreshed", { uid });
   next();
 });
 

@@ -3,21 +3,21 @@ import { CookieOptions } from "express";
 // ── Redis TTLs (seconds) ───────────────────────────────────────────────────
 export const AUTH_TTL = {
   REFRESH: 7 * 24 * 60 * 60,  // 7 days
-  ACCESS : 15 * 60,            // 15 min  — keep in sync with JWT_ACCESS_EXP
-  VERIFY : 24 * 60 * 60,       // 24 hours
-  RESET  : 60 * 60,            // 1 hour
+  ACCESS: 1 * 60,            // 1 min  — keep in sync with JWT_ACCESS_EXP
+  VERIFY: 24 * 60 * 60,       // 24 hours
+  RESET: 60 * 60,            // 1 hour
 } as const;
 
 // ── Redis key prefixes ─────────────────────────────────────────────────────
 export const AUTH_REDIS_PREFIX = {
   REFRESH: "auth:refresh",
-  VERIFY : "auth:verify",
-  RESET  : "auth:reset",
+  VERIFY: "auth:verify",
+  RESET: "auth:reset",
 } as const;
 
 // ── Cookie names ───────────────────────────────────────────────────────────
 export const REFRESH_COOKIE_NAME = "refresh_token" as const;
-export const ACCESS_COOKIE_NAME  = "access_token"  as const;
+export const ACCESS_COOKIE_NAME = "access_token" as const;
 
 /** @deprecated use REFRESH_COOKIE_NAME */
 export const COOKIE_NAME = REFRESH_COOKIE_NAME;
@@ -26,7 +26,7 @@ type CookieConfig = { sameSite: "lax" | "none" | "strict"; secure: boolean };
 
 const baseOptions = (cookie: CookieConfig): CookieOptions => ({
   httpOnly: true,
-  secure  : cookie.sameSite === "none" ? true : cookie.secure,
+  secure: cookie.sameSite === "none" ? true : cookie.secure,
   sameSite: cookie.sameSite,
 });
 

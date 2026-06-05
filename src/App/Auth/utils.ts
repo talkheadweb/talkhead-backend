@@ -2,10 +2,14 @@ import config from "@/Config";
 import { HydratedDocument } from "mongoose";
 import { IUser, TUserPublic } from "./types";
 
-// ── Strip sensitive fields from a Mongoose user document ──────────────────
-export const toPublicUser = (user: HydratedDocument<IUser>): TUserPublic => {
-  const { password: _pw, ...rest } = user.toObject();
-  return rest as TUserPublic;
+// ── Strip sensitive fields from a Mongoose user document or lean plain object ──
+export const toPublicUser = (user: HydratedDocument<IUser> | (IUser & { _id: unknown })): TUserPublic => {
+  // .lean() returns plain objects — toObject() doesn't exist on them
+  const obj = typeof (user as any).toObject === "function"
+    ? (user as HydratedDocument<IUser>).toObject()
+    : user;
+  const { password: _pw, ...rest } = obj as IUser & { _id: unknown };
+  return rest as unknown as TUserPublic;
 };
 
 // ── Email HTML templates ───────────────────────────────────────────────────
