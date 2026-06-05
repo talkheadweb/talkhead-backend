@@ -9,11 +9,6 @@ import { AuthValidation } from "./validation";
 const authRouter = Router();
 
 authRouter
-  // ── Social login ──────────────────────────────────────────────────────
-  // GET /auth/google          → redirect to Google consent screen
-  // GET /auth/google/callback → Google redirects here; issues tokens, redirects to frontend
-  .get("/google",          AuthController.googleAuth)
-  .get("/google/callback", AuthController.googleCallback)
   // ── Public ───────────────────────────────────────────────────────────
   // emailLimiter guards routes that send mail; loginLimiter guards brute-force.
   .post("/register",            emailLimiter, validateRequest(AuthValidation.registerZodSchema),            AuthController.register)

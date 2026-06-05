@@ -35,13 +35,6 @@ export type TLoginInput = {
   password : string;
 };
 
-export type TSocialLoginInput = {
-  provider  : "google";
-  providerId: string;       // OAuth sub / unique ID from the provider
-  email     : string;
-  name      : string;
-  picture  ?: string;       // avatar URL from the provider (best-effort)
-};
 
 export type TLoginResponse = {
   user         : TUserPublic;

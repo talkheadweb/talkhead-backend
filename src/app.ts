@@ -4,7 +4,7 @@
   All startup logic (DB, Redis, bootstrap) lives in src/index.ts.
 */
 
-import "@/App/Auth/strategies/google.strategy"; // registers passport strategy (side-effect)
+import "@/App/Auth/social/strategies/google.strategy"; // registers passport strategy (side-effect)
 import morganMiddleware from "@/Middlewares/Debug/morganMiddleware";
 import passport from "passport";
 import globalErrorHandler from "@/Middlewares/Errors/globalErrorHandler";

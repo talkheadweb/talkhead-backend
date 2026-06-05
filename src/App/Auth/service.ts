@@ -12,7 +12,6 @@ import {
   TLoginInput,
   TLoginResponse,
   TRegisterInput,
-  TSocialLoginInput,
   TUpdateProfileInput,
   TUserPublic,
 } from "./types";
@@ -354,59 +353,9 @@ const changePassword = async (
   log.info("Password changed", { userId });
 };
 
-// ── Social login (OAuth) ───────────────────────────────────────────────────
-/**
- * Find-or-create a user from an OAuth provider profile.
- *
- * Business rules:
- * - Match by `providerId` first (returning user on same provider).
- * - If no match, look up by email — an existing email/password account gets the
- *   provider linked automatically (account merging). The password remains set,
- *   so the user can still sign in both ways.
- * - If no existing account at all, a new one is created with `isVerified: true`
- *   (the provider already verified the address).
- * - Tokens are issued identically to the normal login flow.
- */
-const socialLogin = async (payload: TSocialLoginInput): Promise<TLoginResponse> => {
-  const { provider, providerId, email, name, picture } = payload;
-
-  // 1. Try to find by provider-specific ID
-  const lookupField = `${provider}Id`; // e.g. "googleId"
-  let user = await UserModel.findOne({ [lookupField]: providerId });
-
-  if (!user) {
-    // 2. Fall back to email — link the OAuth account to an existing user
-    user = await UserModel.findOne({ email });
-    if (user) {
-      (user as any)[lookupField] = providerId;
-      user.isVerified = true;
-      if (picture && !user.profilePicture) user.profilePicture = picture;
-      await user.save();
-    } else {
-      // 3. First-time social login — create a new account
-      user = await UserModel.create({
-        name,
-        email,
-        [lookupField] : providerId,
-        isVerified    : true,   // provider already verified the email
-        profilePicture: picture ?? null,
-      });
-    }
-  }
-
-  const tokenPayload = { uid: user._id.toString(), email: user.email, role: user.role };
-  const accessToken  = JwtHelper.signAccessToken(tokenPayload);
-  const refreshToken = JwtHelper.signRefreshToken(tokenPayload);
-  await AuthRedisService.refreshToken.set(user._id.toString(), refreshToken);
-
-  log.info("Social login", { provider, userId: user._id });
-  return { user: toPublicUser(user), accessToken, refreshToken };
-};
-
 export const AuthService = {
   register,
   login,
-  socialLogin,
   logout,
   refreshAccessToken,
   forgotPassword,
