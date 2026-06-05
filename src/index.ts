@@ -5,11 +5,11 @@
 */
 
 import app from "@/app";
+import { bootstrap } from "@/bootstrap";
 import config from "@/Config";
 import connectDB from "@/Config/db";
 import { RedisClient } from "@/Config/redis/connection";
 import { RedisEventClient } from "@/Config/redis/events";
-import { bootstrap } from "@/bootstrap";
 import http from "http";
 import mongoose from "mongoose";
 import { LogService } from "./Config/logger/utils";
@@ -19,7 +19,7 @@ import "@/Config/redis/connection";
 import "@/Config/redis/events";
 
 const server = http.createServer(app);
-const log    = LogService.APPLICATION;
+const log = LogService.APPLICATION;
 const { port } = config;
 
 const main = async () => {
@@ -69,7 +69,7 @@ const shutdown = async (signal: string, exitCode: number): Promise<void> => {
 };
 
 process.on("SIGTERM", () => shutdown("SIGTERM", 0));
-process.on("SIGINT",  () => shutdown("SIGINT",  0));
+process.on("SIGINT", () => shutdown("SIGINT", 0));
 
 process.on("uncaughtException", (err) => {
   log.error("uncaughtException →", err);
