@@ -111,6 +111,12 @@
     "skipLibCheck": true
     /* Skip type checking all .d.ts files. */
   },
+  // Ambient declaration files that augment third-party types (e.g. Express.User)
+  // must be listed here explicitly. `include` globs are processed lazily by ts-node,
+  // so augmentation files that are never `import`ed would otherwise be silently skipped.
+  "files": [
+    "src/types/express/index.d.ts"
+  ],
   "include": [
     "src/**/*.ts",
     "__tests__/**/*.ts",
