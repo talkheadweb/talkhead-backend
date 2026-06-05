@@ -27,9 +27,15 @@ import config from "@/Config";
 import CustomError from "@/Utils/errors/customError.class";
 import { NextFunction, Request, Response } from "express";
 import passport from "passport";
-import { COOKIE_NAME, getRefreshTokenCookieOptions } from "../const";
+import {
+  ACCESS_COOKIE_NAME,
+  REFRESH_COOKIE_NAME,
+  getAccessTokenCookieOptions,
+  getRefreshTokenCookieOptions,
+} from "../const";
 
-const { set: cookieOptions } = getRefreshTokenCookieOptions(config.auth.cookie);
+const { set: refreshCookieOptions } = getRefreshTokenCookieOptions(config.auth.cookie);
+const { set: accessCookieOptions  } = getAccessTokenCookieOptions(config.auth.cookie);
 
 // ── Shared helper ──────────────────────────────────────────────────────────────
 
@@ -85,7 +91,8 @@ const googleCallback = (req: Request, res: Response, next: NextFunction): void =
         redirectToFrontend(res, { error: err?.message ?? "Google authentication failed." });
         return;
       }
-      res.cookie(COOKIE_NAME, oauthUser.refreshToken!, cookieOptions);
+      res.cookie(ACCESS_COOKIE_NAME,  oauthUser.accessToken!,  accessCookieOptions);
+      res.cookie(REFRESH_COOKIE_NAME, oauthUser.refreshToken!, refreshCookieOptions);
       redirectToFrontend(res, { token: oauthUser.accessToken! });
     },
   )(req, res, next);

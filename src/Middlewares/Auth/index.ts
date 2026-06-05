@@ -1,3 +1,10 @@
+import config from "@/Config";
+import {
+  ACCESS_COOKIE_NAME,
+  REFRESH_COOKIE_NAME,
+  getAccessTokenCookieOptions,
+} from "@/App/Auth/const";
+import { AuthRedisService } from "@/App/Auth/redisService";
 import { LogService } from "@/Config/logger/utils";
 import CustomError from "@/Utils/errors/customError.class";
 import catchAsync from "@/Utils/helper/catchAsync";
@@ -5,33 +12,83 @@ import { JwtHelper } from "@/Utils/helper/jwtHelper";
 import { NextFunction, Request, Response } from "express";
 
 const log = LogService.AUTH;
+const { set: accessCookieOptions } = getAccessTokenCookieOptions(config.auth.cookie);
 
 /**
- * Validates the Bearer access token from the Authorization header.
- * Attaches the verified payload to `req.user` for downstream use.
+ * Authentication middleware — fully cookie-managed with silent token refresh.
  *
- * Usage: router.get("/me", authenticate, controller)
+ * Token resolution order (first valid token wins):
+ *   1. access_token  cookie        (set by login / silent refresh)
+ *   2. Authorization: Bearer <token>  (mobile apps / API clients)
+ *
+ * Silent refresh flow:
+ *   When the access token is expired but a valid refresh_token cookie exists,
+ *   the middleware issues a new access_token cookie and proceeds with the
+ *   original request — no retry, no 401, the user never notices.
+ *
+ * Hard 401 cases:
+ *   - No token at all
+ *   - Access token invalid (tampered signature)
+ *   - Access token expired AND refresh token missing / invalid / revoked
  */
-const authenticate = catchAsync(async (req: Request, _res: Response, next: NextFunction) => {
-  const authHeader = req.headers.authorization;
+const authenticate = catchAsync(async (req: Request, res: Response, next: NextFunction) => {
+  // ── 1. Read token — cookie first, Authorization header as fallback ─────────
+  const cookieToken  = req.cookies?.[ACCESS_COOKIE_NAME] as string | undefined;
+  const bearerToken  = req.headers.authorization?.startsWith("Bearer ")
+    ? req.headers.authorization.split(" ")[1]
+    : undefined;
 
-  if (!authHeader?.startsWith("Bearer "))
-    throw new CustomError("Access token is required.", 401);
+  const rawToken = cookieToken ?? bearerToken;
+  if (!rawToken) throw new CustomError("Authentication required.", 401);
 
-  const token = authHeader.split(" ")[1];
-
+  // ── 2. Try to verify the access token ────────────────────────────────────
   try {
-    const payload = JwtHelper.verifyAccessToken(token);
+    const payload = JwtHelper.verifyAccessToken(rawToken);
     req.user = {
       uid  : String(payload.uid),
       email: payload.email as string,
-      role : payload.role as string,
+      role : payload.role  as string,
     };
-    log.debug("Token verified", { uid: payload.uid });
-  } catch {
-    throw new CustomError("Invalid or expired access token.", 401);
+    log.debug("Access token verified", { uid: payload.uid });
+    return next();
+  } catch (err: any) {
+    // Any error other than expiry (e.g. invalid signature) is an immediate 401
+    if (err?.name !== "TokenExpiredError") {
+      throw new CustomError("Invalid access token.", 401);
+    }
   }
 
+  // ── 3. Access token expired — attempt silent refresh via cookie ───────────
+  const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME] as string | undefined;
+  if (!refreshToken) throw new CustomError("Session expired. Please log in again.", 401);
+
+  let refreshPayload;
+  try {
+    refreshPayload = JwtHelper.verifyRefreshToken(refreshToken);
+  } catch {
+    throw new CustomError("Session expired. Please log in again.", 401);
+  }
+
+  // Confirm the refresh token is still live in Redis (revocation check)
+  const stored = await AuthRedisService.refreshToken.get(refreshPayload.uid as string);
+  if (!stored || stored !== refreshToken)
+    throw new CustomError("Session expired. Please log in again.", 401);
+
+  // Issue new access token and set it as a cookie — browser stores it automatically
+  const newAccessToken = JwtHelper.signAccessToken({
+    uid  : refreshPayload.uid,
+    email: refreshPayload.email,
+    role : refreshPayload.role,
+  });
+  res.cookie(ACCESS_COOKIE_NAME, newAccessToken, accessCookieOptions);
+
+  req.user = {
+    uid  : String(refreshPayload.uid),
+    email: refreshPayload.email as string,
+    role : refreshPayload.role  as string,
+  };
+
+  log.info("Access token silently refreshed", { uid: refreshPayload.uid });
   next();
 });
 

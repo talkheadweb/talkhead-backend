@@ -51,7 +51,9 @@ export const authPaths: Record<string, object> = {
     summary    : "Login",
     description: [
       "Authenticates the user and returns a short-lived access token.",
-      "A long-lived refresh token is set as an httpOnly cookie (`refresh_token`).",
+      "Sets two httpOnly cookies: `access_token` (15 min) and `refresh_token` (7 days).",
+      "Web clients rely on the cookies — browser sends them automatically on every request.",
+      "Mobile / API clients should use the `accessToken` field from the response body as a Bearer token.",
       "If the email is not verified, a fresh verification link is automatically emailed and a 403 is returned.",
       "Rate limited per IP to prevent brute-force.",
     ],
@@ -70,13 +72,13 @@ export const authPaths: Record<string, object> = {
 
   "/auth/logout": post({
     summary   : "Logout",
-    description: "Revokes the refresh token from Redis and clears the refresh_token cookie. Always succeeds, even with no cookie.",
+    description: "Revokes the refresh token from Redis and clears both `access_token` and `refresh_token` cookies. Always succeeds, even with no cookie.",
     responses : { ...ok("Logged out successfully.") },
   }),
 
   "/auth/refresh-token": post({
     summary   : "Refresh access token",
-    description: "Uses the `refresh_token` httpOnly cookie to issue a new access token. Fails if the token is expired, invalid, or revoked via logout.",
+    description: "Uses the `refresh_token` httpOnly cookie to issue a new access token. Also sets a new `access_token` cookie. Intended for mobile clients — web clients get silent refresh automatically via the `authenticate` middleware. Fails if the token is expired, invalid, or revoked via logout.",
     responses : {
       ...ok("Token refreshed.", { type: "object", properties: { accessToken: str() } }),
       ...errors(401),

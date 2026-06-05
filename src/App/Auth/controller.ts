@@ -4,7 +4,13 @@ import catchAsync from "@/Utils/helper/catchAsync";
 import { JwtHelper } from "@/Utils/helper/jwtHelper";
 import { sendResponse } from "@/Utils/helper/sendResponse";
 import { Request, Response } from "express";
-import { COOKIE_NAME, getRefreshTokenCookieOptions } from "./const";
+import {
+  ACCESS_COOKIE_NAME,
+  REFRESH_COOKIE_NAME,
+  COOKIE_NAME,
+  getAccessTokenCookieOptions,
+  getRefreshTokenCookieOptions,
+} from "./const";
 import { AuthService } from "./service";
 import {
   TChangePasswordBody,
@@ -17,7 +23,8 @@ import {
   TVerifyEmailBody,
 } from "./types";
 
-const { set: cookieOptions, clear: clearCookieOptions } = getRefreshTokenCookieOptions(config.auth.cookie);
+const { set: refreshCookieOptions, clear: clearRefreshCookieOptions } = getRefreshTokenCookieOptions(config.auth.cookie);
+const { set: accessCookieOptions,  clear: clearAccessCookieOptions  } = getAccessTokenCookieOptions(config.auth.cookie);
 
 // ── Public endpoints ───────────────────────────────────────────────────────
 
@@ -47,13 +54,16 @@ const login = catchAsync(async (req: Request, res: Response) => {
     password: body.password,
   });
 
-  // Deliver refresh token as httpOnly cookie (not accessible via JS)
-  res.cookie(COOKIE_NAME, refreshToken, cookieOptions);
+  // Both tokens delivered as httpOnly cookies — zero client-side token management needed.
+  // access_token  short-lived (15 min) — refreshed silently by authenticate middleware
+  // refresh_token long-lived  (7 days) — used only for silent refresh, never read by JS
+  res.cookie(ACCESS_COOKIE_NAME,  accessToken,  accessCookieOptions);
+  res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions);
 
   sendResponse.success(res, {
     statusCode: 200,
     message: "Login successful.",
-    data: { user, accessToken },
+    data: { user, accessToken },   // accessToken still returned in body for mobile/API clients
     req,
   });
 });
@@ -72,7 +82,8 @@ const logout = catchAsync(async (req: Request, res: Response) => {
     }
   }
 
-  res.clearCookie(COOKIE_NAME, clearCookieOptions);
+  res.clearCookie(ACCESS_COOKIE_NAME,  clearAccessCookieOptions);
+  res.clearCookie(REFRESH_COOKIE_NAME, clearRefreshCookieOptions);
 
   sendResponse.success(res, {
     statusCode: 200,
@@ -83,15 +94,18 @@ const logout = catchAsync(async (req: Request, res: Response) => {
 
 /** POST /api/v1/auth/refresh-token */
 const refreshToken = catchAsync(async (req: Request, res: Response) => {
-  const token = req.cookies[COOKIE_NAME] as string | undefined;
+  const token = req.cookies[REFRESH_COOKIE_NAME] as string | undefined;
   if (!token) throw new CustomError("Refresh token is required.", 401);
 
   const { accessToken } = await AuthService.refreshAccessToken(token);
 
+  // Refresh the access_token cookie so web clients stay in sync
+  res.cookie(ACCESS_COOKIE_NAME, accessToken, accessCookieOptions);
+
   sendResponse.success(res, {
     statusCode: 200,
     message: "Token refreshed successfully.",
-    data: { accessToken },
+    data: { accessToken },   // also in body for mobile clients
     req,
   });
 });
@@ -196,8 +210,9 @@ const changePassword = catchAsync(async (req: Request, res: Response) => {
 
   await AuthService.changePassword(userId, body.currentPassword, body.newPassword);
 
-  // Clear session cookie — user must log in again
-  res.clearCookie(COOKIE_NAME, clearCookieOptions);
+  // Clear both cookies — user must log in again
+  res.clearCookie(ACCESS_COOKIE_NAME,  clearAccessCookieOptions);
+  res.clearCookie(REFRESH_COOKIE_NAME, clearRefreshCookieOptions);
 
   sendResponse.success(res, {
     statusCode: 200,

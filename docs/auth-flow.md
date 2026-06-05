@@ -9,11 +9,12 @@ format and the same end state — the client cannot distinguish which was used.
 
 | Token | Where | Lifetime | Purpose |
 |---|---|---|---|
-| **Access token** | JSON response body / URL `?token=` | 15 min | Bearer token for API requests |
-| **Refresh token** | `httpOnly` cookie (`refresh_token`) | 7 days | Obtain a new access token when the current one expires |
+| **Access token** | `httpOnly` cookie (`access_token`) + JSON body | 15 min | Bearer token for API requests |
+| **Refresh token** | `httpOnly` cookie (`refresh_token`) | 7 days | Silent access token renewal |
 
-The refresh token is stored in Redis on login and deleted on logout/password-change/reset,
-enabling instant revocation even before the JWT itself expires.
+Both tokens are set as `httpOnly` cookies so the browser sends them automatically — **zero frontend token management required** for web clients. The access token is also returned in the JSON body for mobile / API clients that can't read cookies.
+
+The refresh token is stored in Redis on login and deleted on logout/password-change/reset, enabling instant revocation even before the JWT itself expires.
 
 ---
 
@@ -67,7 +68,8 @@ Store refresh token in Redis (auth:refresh:<userId>, 7 day TTL)
        │
        ▼
 200 OK
-  body: { user, accessToken }
+  body: { user, accessToken }                    ← accessToken also in body for mobile clients
+  Set-Cookie: access_token=<token>;  HttpOnly; SameSite=lax; Max-Age=900
   Set-Cookie: refresh_token=<token>; HttpOnly; SameSite=lax; Max-Age=604800
 ```
 
@@ -84,13 +86,17 @@ Verify refresh token → extract userId
 Delete auth:refresh:<userId> from Redis
        │
        ▼
-Clear refresh_token cookie
+Clear access_token + refresh_token cookies
        │
        ▼
 200 OK
 ```
 
-### Refresh access token
+### Refresh access token (explicit, for mobile)
+
+Web clients never need to call this — the `authenticate` middleware silently refreshes
+the access token cookie when it expires. Mobile clients that use the Bearer header
+should call this endpoint to get a new token.
 
 ```
 POST /api/v1/auth/refresh-token
@@ -104,6 +110,31 @@ Compare against Redis — must match exactly (prevents replay after logout)
        │
        ▼
 200 OK  { accessToken: "eyJ..." }
+Set-Cookie: access_token=<token>; HttpOnly; ...
+```
+
+### Silent token refresh (web clients — automatic)
+
+The `authenticate` middleware handles this transparently:
+
+```
+Request arrives with expired access_token cookie
+       │
+       ▼
+JwtHelper.verifyAccessToken → TokenExpiredError
+       │
+       ▼
+Read refresh_token cookie
+  missing ──► 401 "Session expired. Please log in again."
+  invalid ──► 401
+  not in Redis (revoked) ──► 401
+       │
+       ▼
+Issue new access_token cookie + proceed with original request
+  Set-Cookie: access_token=<newToken>; HttpOnly; ...
+       │
+       ▼
+Request succeeds — user never sees a 401
 ```
 
 ### Forgot password
@@ -186,13 +217,14 @@ STEP 7 — Backend issues tokens (identical to normal login):
   - Sign access token + refresh token
   - Store refresh token in Redis
 
-STEP 8 — Backend sets httpOnly cookie + redirects browser to frontend
+STEP 8 — Backend sets both httpOnly cookies + redirects browser to frontend
+  Set-Cookie: access_token=<token>;  HttpOnly
   Set-Cookie: refresh_token=<token>; HttpOnly
   302 → FRONTEND_SOCIAL_CALLBACK_URL?token=<accessToken>
 
 STEP 9 — Frontend page at /auth/callback:
-  const token = new URLSearchParams(location.search).get("token");
-  storeAccessToken(token);  // identical to what login page does
+  // Web: cookies are already set — just redirect to dashboard
+  // Mobile: const token = new URLSearchParams(location.search).get("token");
   redirect("/dashboard");
 ```
 
@@ -208,12 +240,15 @@ Backend verifies password               Backend verifies Google profile
 Issues access + refresh tokens          Issues access + refresh tokens (same)
   ↓                                       ↓
 JSON: { user, accessToken }             302 → /auth/callback?token=<accessToken>
+Set-Cookie: access_token                Set-Cookie: access_token
 Set-Cookie: refresh_token               Set-Cookie: refresh_token
   ↓                                       ↓
-Frontend stores accessToken             Frontend reads ?token= → stores accessToken
+Web: cookies set — done                 Web: cookies set — just redirect
+Mobile: store accessToken               Mobile: read ?token= → store accessToken
   ↓                                       ↓
   ────── IDENTICAL FROM HERE ──────────────────────────────────────────────
-Bearer <accessToken> on every API call
+Web:    browser sends cookies automatically on every request
+Mobile: Bearer <accessToken> header on every request
 GET /api/v1/auth/me → full user profile
 ```
 
@@ -239,8 +274,11 @@ router.get("/me", authenticate, controller)
 router.delete("/users/:id", authenticate, AccessLimit(["admin"]), controller)
 ```
 
-`authenticate` validates the `Authorization: Bearer <token>` header, verifies
-the JWT, and sets `req.user = { uid, email, role }`.
+`authenticate` reads the access token from the `access_token` cookie first, falling
+back to the `Authorization: Bearer <token>` header for mobile clients. It verifies
+the JWT and sets `req.user = { uid, email, role }`. If the access token is expired
+but a valid `refresh_token` cookie is present, it silently issues a new access token
+cookie and proceeds — the request never fails.
 
 `AccessLimit(roles)` checks `req.user.role` against the allowed list and
 returns **403** (not 401) if the role doesn't match.

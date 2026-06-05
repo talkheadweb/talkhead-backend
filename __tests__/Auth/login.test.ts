@@ -54,11 +54,12 @@ describe("POST /auth/login", () => {
     expect(res.body.data.user).not.toHaveProperty("password");
   });
 
-  it("sets httpOnly refresh_token cookie", async () => {
+  it("sets httpOnly access_token and refresh_token cookies", async () => {
     const res = await request(app).post(ENDPOINT).send(validBody);
-    const cookies = res.headers["set-cookie"] as unknown as string[];
-    expect(cookies[0]).toMatch(/refresh_token/);
-    expect(cookies[0]).toMatch(/HttpOnly/i);
+    const cookies = (res.headers["set-cookie"] as unknown as string[]).join(" ");
+    expect(cookies).toMatch(/access_token/);
+    expect(cookies).toMatch(/refresh_token/);
+    expect(cookies).toMatch(/HttpOnly/i);
   });
 
   it("stores refresh token in Redis", async () => {
