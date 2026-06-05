@@ -13,7 +13,8 @@ services:
       redis-server:
         condition: service_healthy
     networks:
-      - backend # internal — app ↔ redis only
+      - backend        # internal — app ↔ redis only
+      - dokploy-network  # required so Traefik can reach the container
     # Traefik labels are NOT needed here — Dokpoly injects them automatically
     # when you configure the domain from the dashboard.
     healthcheck:
@@ -66,3 +67,6 @@ volumes:
 networks:
   backend:
     driver: bridge # internal — app ↔ redis only
+
+  dokploy-network:
+    external: true   # pre-created by Dokpoly — Traefik uses this to route to containers
