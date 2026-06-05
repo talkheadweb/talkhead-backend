@@ -1,40 +1,38 @@
-import config from "@/Config/index";
+/*
+  Main Redis client — used for all regular GET / SET / DEL commands.
+
+  Reconnection: ioredis retryStrategy handles exponential backoff automatically.
+    1s → 2s → 4s → 8s → 16s → 30s → 30s → …
+  Commands issued while disconnected are queued and executed on reconnect
+  (maxRetriesPerRequest: null).
+*/
+
+import config from "@/Config";
+import { LogService } from "@/Config/logger/utils";
 import { Redis } from "ioredis";
-import { LogService } from "../logger/utils";
-import { RedisManager } from "./redisManager";
+
+const log  = LogService.REDIS;
+const NAME = "RedisClient";
 
 const RedisClient = new Redis({
-    host: config.redis.host,
-    port: config.redis.port || 6379,
-    password: config.redis.password,
-    maxRetriesPerRequest: 1,
-    lazyConnect: true
-})
-
-// Create retry manager for main Redis client
-const redisManager = new RedisManager({
-    maxAttempts: 10,
-    clientName: "Redis Client",
-    baseDelayMs: 1000,  // Start with 1000ms delay
-    maxDelayMs: 100000, // Cap at 100 seconds
-    onConnect: () => {
-        // Ping Redis server on successful connection
-        RedisClient.ping((err, result) => {
-            if (err) {
-                LogService.REDIS.error("Redis Ping failed:", err);
-            } else {
-                LogService.REDIS.debug("Redis Ping response:", { result });
-            }
-        });
-    }
+  host    : config.redis.host,
+  port    : config.redis.port,
+  password: config.redis.password,
+  lazyConnect         : true,
+  maxRetriesPerRequest: null,
+  retryStrategy: (times) => Math.min(2 ** (times - 1) * 1_000, 30_000),
 });
 
-// Setup retry logic using the centralized manager
-redisManager.setupRetryLogic(RedisClient);
+RedisClient.on("connect",      ()    => log.debug(`[${NAME}] connecting`));
+RedisClient.on("ready",        ()    => log.info (`[${NAME}] ready`));
+RedisClient.on("error",        (err) => log.error(`[${NAME}] error — ${err.message}`));
+RedisClient.on("close",        ()    => log.warn (`[${NAME}] connection closed`));
+RedisClient.on("reconnecting", ()    => log.warn (`[${NAME}] reconnecting…`));
+RedisClient.on("end",          ()    => log.warn (`[${NAME}] connection ended`));
 
-// Handle initial connection (now async)
-(async () => {
-    await redisManager.handleInitialConnection(RedisClient);
-})();
+// Connect on startup. If Redis isn't available yet, retryStrategy takes over.
+RedisClient.connect().catch((err) =>
+  log.warn(`[${NAME}] initial connection failed — retrying in background`, { message: err.message })
+);
 
 export { RedisClient };

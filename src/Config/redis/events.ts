@@ -1,53 +1,59 @@
-import config from "@/Config/index";
+/*
+  Redis keyspace-event client — dedicated pub/sub connection.
+
+  A separate connection is required because a client in subscribe mode cannot
+  issue regular commands on the same connection.
+
+  Subscribed to: __keyevent@0__:expired
+  Add feature-specific expiry handlers in the `message` listener below.
+*/
+
+import config from "@/Config";
+import { LogService } from "@/Config/logger/utils";
 import { Redis } from "ioredis";
-import { LogService } from "../logger/utils";
-import { RedisManager } from "./redisManager";
+
+const log     = LogService.REDIS;
+const NAME    = "RedisEventClient";
+const CHANNEL = "__keyevent@0__:expired";
 
 const RedisEventClient = new Redis({
-    host: config.redis.host,
-    port: config.redis.port || 6379,
-    password: config.redis.password,
-    maxRetriesPerRequest: 1,
-    lazyConnect: true
-})
-
-const chanel_name = '__keyevent@0__:expired'
-
-// Create retry manager for Redis Event client
-const eventRetryManager = new RedisManager({
-    maxAttempts: 10,
-    clientName: "Redis Event Client",
-    baseDelayMs: 1000,  // Start with 1000ms delay
-    maxDelayMs: 100000, // Cap at 100 seconds
-    onReady: () => {
-        // Configure and subscribe to events only after successful connection
-        RedisEventClient.config('SET', 'notify-keyspace-events', 'Ex');
-        RedisEventClient.subscribe('__keyevent@0__:expired');
-
-        // Set up message handler after connection is ready
-        RedisEventClient.on('message', async (channel: string, message: string) => {
-            LogService.REDIS.debug('message', { message, channel });
-            if (channel === chanel_name) {
-                const keys = message.split(':')
-                LogService.REDIS.debug('keys', { keys })
-                if (keys[0] === 'key name') {
-                    //do something
-                }
-            }
-        });
-    },
-    onMaxAttemptsReached: () => {
-        // Don't exit process here as this is for events only, main app can continue
-        LogService.REDIS.warn("Redis Event Client disabled due to connection failures. Event-based features may not work.");
-    }
+  host    : config.redis.host,
+  port    : config.redis.port,
+  password: config.redis.password,
+  lazyConnect         : true,
+  maxRetriesPerRequest: null,
+  retryStrategy: (times) => Math.min(2 ** (times - 1) * 1_000, 30_000),
 });
 
-// Setup retry logic using the centralized manager
-eventRetryManager.setupRetryLogic(RedisEventClient);
+RedisEventClient.on("connect",      ()    => log.debug(`[${NAME}] connecting`));
+RedisEventClient.on("ready",        ()    => log.info (`[${NAME}] ready`));
+RedisEventClient.on("error",        (err) => log.error(`[${NAME}] error — ${err.message}`));
+RedisEventClient.on("close",        ()    => log.warn (`[${NAME}] connection closed`));
+RedisEventClient.on("reconnecting", ()    => log.warn (`[${NAME}] reconnecting…`));
+RedisEventClient.on("end",          ()    => log.warn (`[${NAME}] connection ended`));
 
-// Handle initial connection (now async)
-(async () => {
-    await eventRetryManager.handleInitialConnection(RedisEventClient);
-})();
+// Re-subscribe on every (re)connect — subscriptions are dropped on disconnect.
+RedisEventClient.on("ready", () => {
+  RedisEventClient.config("SET", "notify-keyspace-events", "Ex");
+  RedisEventClient.subscribe(CHANNEL, (err) => {
+    if (err) log.error(`[${NAME}] subscribe failed`, { message: err.message });
+    else     log.info (`[${NAME}] subscribed to ${CHANNEL}`);
+  });
+});
+
+// ── Expiry event handler ───────────────────────────────────────────────────
+// Add feature-specific logic here as the app grows.
+// The `key` is the full Redis key that just expired, e.g. "auth:verify:userId".
+RedisEventClient.on("message", (_channel: string, key: string) => {
+  log.debug(`[${NAME}] key expired`, { key });
+
+  // Example pattern:
+  // const [domain, type, id] = key.split(":");
+  // if (domain === "auth" && type === "verify") { ... }
+});
+
+RedisEventClient.connect().catch((err) =>
+  log.warn(`[${NAME}] initial connection failed — retrying in background`, { message: err.message })
+);
 
 export { RedisEventClient };
