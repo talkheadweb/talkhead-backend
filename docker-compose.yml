@@ -35,7 +35,7 @@ services:
 
       # ── Tell Traefik which network to use to reach this container ─────────
       # Mandatory when a container is attached to multiple networks.
-      - "traefik.docker.network=traefik"
+      - "traefik.docker.network=dokploy-network"
     healthcheck:
       test:
         [
@@ -88,5 +88,5 @@ networks:
     driver: bridge # internal — app ↔ redis only
 
   traefik:
-    external: true # already created by Dockpoly — do NOT let compose recreate it
-    name: traefik # verify the exact name with: docker network ls
+    external: true
+    name: dokploy-network
