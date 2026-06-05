@@ -7,8 +7,8 @@ services:
     # Exposing a host port would bypass Traefik entirely.
     env_file:
       - .env
-    volumes:
-      - ../application-logs:/application-logs
+    # volumes:
+    # - ../application-logs:/application-logs  # uncomment to enable file logging
     depends_on:
       redis-server:
         condition: service_healthy
