@@ -20,6 +20,10 @@ COPY --from=builder /app/dist        ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 
+# Create directories the app writes to at runtime and hand them to the node user.
+# Must be done as root (before USER node) — the node user has no write access to /app.
+RUN mkdir -p temp-uploads && chown -R node:node /app
+
 # Run as non-root user — principle of least privilege
 USER node
 
