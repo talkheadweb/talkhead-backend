@@ -4,7 +4,9 @@
   All startup logic (DB, Redis, bootstrap) lives in src/index.ts.
 */
 
-import "@/App/Auth/social/strategies/google.strategy"; // registers passport strategy (side-effect)
+import "@/App/Auth/social/strategies/google.strategy"; // registers passport strategies (side-effect)
+import socialRouter from "@/App/Auth/social/routes";
+import { globalLimiter } from "@/Middlewares/RateLimit";
 import morganMiddleware from "@/Middlewares/Debug/morganMiddleware";
 import passport from "passport";
 import globalErrorHandler from "@/Middlewares/Errors/globalErrorHandler";
@@ -56,7 +58,16 @@ if (config.node_env !== ENodeEnv.PROD) {
   }));
 }
 
-// ── Application routes ─────────────────────────────────────────────────────
+// ── Social / OAuth routes ──────────────────────────────────────────────────
+// Mounted directly here (not through configRoutes) because OAuth is a
+// browser-redirect flow, not a JSON API.  The URLs are:
+//   GET /api/v1/auth/social/google          → redirect to Google
+//   GET /api/v1/auth/social/google/callback → receive Google redirect
+// Adding a new provider = one new .strategy.ts import above + routes in
+// src/App/Auth/social/routes.ts. Nothing else changes.
+app.use("/api/v1/auth/social", globalLimiter, socialRouter);
+
+// ── JSON API routes ────────────────────────────────────────────────────────
 app.use("/", configRoutes);
 
 // ── Error handlers (must be last) ─────────────────────────────────────────

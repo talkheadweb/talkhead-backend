@@ -23,7 +23,7 @@ if (config.google) {
       {
         clientID    : config.google.client_id,
         clientSecret: config.google.client_secret,
-        callbackURL : `${config.backend_base_url}/api/v1/auth/google/callback`,
+        callbackURL : `${config.backend_base_url}/api/v1/auth/social/google/callback`,
       },
       async (_accessToken, _refreshToken, profile, done) => {
         try {

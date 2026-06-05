@@ -1,11 +1,9 @@
-import authRouter   from "@/App/Auth/routes";
-import socialRouter from "@/App/Auth/social/routes";
+import authRouter from "@/App/Auth/routes";
 import { Router } from "express";
 
 const rootRouter = Router();
 
-rootRouter.use("/auth", authRouter);   // email/password auth
-rootRouter.use("/auth", socialRouter); // social / OAuth login (Google, GitHub, …)
+rootRouter.use("/auth", authRouter);
 
 // ── Feature routes ────────────────────────────────────────────────────────────
 // Add new feature modules here:
