@@ -14,28 +14,8 @@ services:
         condition: service_healthy
     networks:
       - backend # internal — app ↔ redis only
-      - traefik # external — Traefik discovers the container here
-    labels:
-      - "traefik.enable=true"
-
-      # ── HTTPS router ─────────────────────────────────────────────────────
-      - "traefik.http.routers.talkhead-api.rule=Host(`dev-api.talkhead.ai`)"
-      - "traefik.http.routers.talkhead-api.entrypoints=websecure"
-      - "traefik.http.routers.talkhead-api.tls.certresolver=letsencrypt"
-
-      # ── HTTP → HTTPS redirect ─────────────────────────────────────────────
-      - "traefik.http.routers.talkhead-api-http.rule=Host(`dev-api.talkhead.ai`)"
-      - "traefik.http.routers.talkhead-api-http.entrypoints=web"
-      - "traefik.http.routers.talkhead-api-http.middlewares=https-redirect"
-      - "traefik.http.middlewares.https-redirect.redirectscheme.scheme=https"
-      - "traefik.http.middlewares.https-redirect.redirectscheme.permanent=true"
-
-      # ── Service port (what the app listens on inside the container) ───────
-      - "traefik.http.services.talkhead-api.loadbalancer.server.port=9000"
-
-      # ── Tell Traefik which network to use to reach this container ─────────
-      # Mandatory when a container is attached to multiple networks.
-      - "traefik.docker.network=dokploy-network"
+    # Traefik labels are NOT needed here — Dokpoly injects them automatically
+    # when you configure the domain from the dashboard.
     healthcheck:
       test:
         [
@@ -86,7 +66,3 @@ volumes:
 networks:
   backend:
     driver: bridge # internal — app ↔ redis only
-
-  traefik:
-    external: true
-    name: dokploy-network
