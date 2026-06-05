@@ -13,8 +13,8 @@ services:
       redis-server:
         condition: service_healthy
     networks:
-      - backend        # internal — app ↔ redis only
-      - dokploy-network  # required so Traefik can reach the container
+      - backend # internal — app ↔ redis only
+      - dokploy-network # required so Traefik can reach the container
     # Traefik labels are NOT needed here — Dokpoly injects them automatically
     # when you configure the domain from the dashboard.
     healthcheck:
@@ -23,7 +23,7 @@ services:
           "CMD-SHELL",
           'node -e "require(''http'').get(''http://app:9000/health'', res => { if (res.statusCode === 200) process.exit(0); else process.exit(1); }).on(''error'', () => process.exit(1));"',
         ]
-      interval: 10s
+      interval: 120s
       timeout: 3s
       retries: 5
       start_period: 20s
@@ -69,4 +69,4 @@ networks:
     driver: bridge # internal — app ↔ redis only
 
   dokploy-network:
-    external: true   # pre-created by Dokpoly — Traefik uses this to route to containers
+    external: true # pre-created by Dokpoly — Traefik uses this to route to containers
