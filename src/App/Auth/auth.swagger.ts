@@ -1,9 +1,12 @@
 /*
-  Swagger path definitions for all /auth routes.
+  OpenAPI path definitions for the Auth module.
 
-  These use the builder helpers from ../helpers.ts — read the legend at the top
-  of that file once and the structure below becomes self-explanatory. Each
-  endpoint reads top-to-bottom: summary → description → body → responses.
+  Lives alongside the routes/controller/service it documents — when you add
+  a new auth endpoint, update this file in the same commit.
+
+  Uses the builder DSL from @/Config/swagger/helpers — read the legend at the
+  top of that file once and the structure below becomes self-explanatory.
+  Each endpoint reads top-to-bottom: summary → description → body → responses.
 */
 
 import {
@@ -11,7 +14,6 @@ import {
   created,
   dualBody,
   email,
-  enumOf,
   errors,
   jsonBody,
   multipartBody,
@@ -19,7 +21,7 @@ import {
   ref,
   str,
   withTag,
-} from "../helpers";
+} from "@/Config/swagger/helpers";
 
 const { get, post, patch } = withTag("Auth");
 
@@ -28,17 +30,18 @@ const userData = ref("UserPublic");
 
 export const authPaths: Record<string, object> = {
 
-  // ── Public ────────────────────────────────────────────────────────────
+  // ── Public ────────────────────────────────────────────────────────────────
+
   "/auth/register": post({
     summary    : "Register a new account",
-    description : "Creates a user account and sends a verification email. The account cannot log in until the email is verified. Rate limited per IP + email.",
+    description: "Creates a user account and sends a verification email. The account cannot log in until the email is verified. Rate limited per IP + email.",
     body       : jsonBody({
       required: ["name", "email", "password"],
       props   : {
         name    : str({ min: 2, max: 50, example: "John Doe" }),
         email   : email(),
-        password: str({ min: 6, example: "secret123" }),
-        role    : enumOf(["user", "admin"], { default: "user" }),
+        password: str({ min: 8, example: "secret123" }),
+        // role is intentionally absent — always defaults to 'user' on registration
       },
     }),
     responses  : { ...created("Account created. Verification email sent."), ...errors(400, 409, 429) },
@@ -46,7 +49,7 @@ export const authPaths: Record<string, object> = {
 
   "/auth/login": post({
     summary    : "Login",
-    description : [
+    description: [
       "Authenticates the user and returns a short-lived access token.",
       "A long-lived refresh token is set as an httpOnly cookie (`refresh_token`).",
       "If the email is not verified, a fresh verification link is automatically emailed and a 403 is returned.",
@@ -95,7 +98,7 @@ export const authPaths: Record<string, object> = {
       props   : {
         userId  : str({ example: "6700000000000000000000ab" }),
         token   : str({ example: "uuid-reset-token" }),
-        password: str({ min: 6, example: "newSecret123" }),
+        password: str({ min: 8, example: "newSecret123" }),
       },
     }),
     responses : { ...ok("Password reset successfully."), ...errors(400) },
@@ -116,12 +119,13 @@ export const authPaths: Record<string, object> = {
 
   "/auth/resend-verification": post({
     summary   : "Resend verification email",
-    description: "Generates a new 24-hour verification token and resends the email. Returns 400 if already verified. Rate limited per IP + email.",
+    description: "Generates a new 24-hour verification token and resends the email. Always returns 200 to prevent email enumeration. Rate limited per IP + email.",
     body      : jsonBody({ required: ["email"], props: { email: email() } }),
-    responses : { ...ok("Verification email sent."), ...errors(400, 404, 429) },
+    responses : { ...ok("Verification email sent (if account exists and is unverified)."), ...errors(400, 429) },
   }),
 
-  // ── Protected ─────────────────────────────────────────────────────────
+  // ── Protected (require valid Bearer access token) ─────────────────────────
+
   "/auth/me": get({
     summary   : "Get current user profile",
     description: "Returns the authenticated user's profile. Requires a valid Bearer access token.",
@@ -143,7 +147,7 @@ export const authPaths: Record<string, object> = {
       multipartBody({
         props: {
           name          : str({ min: 2, max: 50 }),
-          profilePicture: binary({ description: "JPEG/PNG/WebP, max 2 MB" }),
+          profilePicture: binary({ description: "JPEG / PNG / WebP, max 2 MB" }),
         },
       }),
     ),
@@ -158,9 +162,10 @@ export const authPaths: Record<string, object> = {
       required: ["currentPassword", "newPassword"],
       props   : {
         currentPassword: str({ example: "oldSecret123" }),
-        newPassword    : str({ min: 6, example: "newSecret456" }),
+        newPassword    : str({ min: 8, example: "newSecret456" }),
       },
     }),
     responses : { ...ok("Password changed. Please log in again."), ...errors(400, 401, 404) },
   }),
+
 };

@@ -1,5 +1,18 @@
+/*
+  OpenAPI 3.0 specification assembly.
+
+  Each feature module owns its own `<module>.swagger.ts` file alongside its
+  routes/controller/service. Add the import and spread it into `paths` below.
+
+  Pattern for adding a new module:
+    1. Create  src/App/<Feature>/<feature>.swagger.ts
+    2. Import  import { featurePaths } from "@/App/<Feature>/<feature>.swagger"
+    3. Spread  paths: { ...authPaths, ...featurePaths }
+    4. Add tag { name: "<Feature>", description: "..." } to the tags array
+*/
+
 import config from "@/Config";
-import { authPaths } from "./paths/auth";
+import { authPaths } from "@/App/Auth/auth.swagger";
 
 // ── Reusable schema components ─────────────────────────────────────────────
 const components = {
@@ -36,9 +49,9 @@ const components = {
     ErrorResponse: {
       type      : "object",
       properties: {
-        success       : { type: "boolean", example: false },
-        message       : { type: "string" },
-        errorMessages : {
+        success      : { type: "boolean", example: false },
+        message      : { type: "string" },
+        errorMessages: {
           type : "array",
           items: {
             type      : "object",
@@ -59,7 +72,7 @@ export const swaggerSpec = {
   info   : {
     title      : `${config.appName} API`,
     version    : "1.0.0",
-    description: "REST API documentation for talkhead-backend",
+    description: "REST API documentation",
     contact    : { email: config.mail.admin_contact_email },
   },
   servers: [
@@ -67,7 +80,11 @@ export const swaggerSpec = {
   ],
   tags: [
     { name: "Auth", description: "Authentication, session management, and user profile" },
+    // Add a tag here for each new module
   ],
   components,
-  paths: authPaths,
+  paths: {
+    ...authPaths,
+    // ...featurePaths,  ← spread new module paths here
+  },
 };
