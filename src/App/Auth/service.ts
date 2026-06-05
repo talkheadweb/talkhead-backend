@@ -71,6 +71,9 @@ const login = async (payload: TLoginInput): Promise<TLoginResponse> => {
   const user = await UserModel.findOne({ email }).select("+password");
   if (!user) throw new CustomError("Invalid email or password.", 401);
 
+  // Suspended accounts cannot log in
+  if (!user.isActive) throw new CustomError("Your account has been suspended. Please contact support.", 403);
+
   // Social-login accounts have no password — direct them to the correct flow.
   if (!user.password) throw new CustomError("This account uses social login. Please sign in with Google.", 401);
 

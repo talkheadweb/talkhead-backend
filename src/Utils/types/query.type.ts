@@ -17,16 +17,17 @@ export type TPaginationOptions = {
 export const PaginationKeys = ["page", "limit"]
 
 export type TSortOptions<T> = {
-    sortBy: keyof T | string;
-    sortOrder: 'asc' | 'desc';
+    sortBy   : keyof T | string;
+    sortOrder: "asc" | "desc";
 }
 export const SortKeys = ["sortBy", "sortOrder"]
 export const DateFilterKeys = ["startDate", "endDate"]
 
 export type TMeta = {
-    page: number,
-    limit: number,
-    total: number
+    page      : number;
+    limit     : number;
+    total     : number;
+    totalPages: number;
 }
 export type TDataWithMeta<T> = {
     data: T,

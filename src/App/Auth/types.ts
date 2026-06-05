@@ -17,6 +17,7 @@ export interface IUser {
   googleId      ?: string;         // Google OAuth sub — present for Google-linked accounts
   role           : EUserRole;
   isVerified     : boolean;
+  isActive       : boolean;         // false = suspended by admin
   profilePicture : string | null;
   createdAt      : Date;
   updatedAt      : Date;

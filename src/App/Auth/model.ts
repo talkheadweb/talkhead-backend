@@ -35,6 +35,10 @@ const UserSchema = new Schema<IUser>(
       type   : Boolean,
       default: false,
     },
+    isActive: {
+      type   : Boolean,
+      default: true,   // false = suspended by admin; user cannot log in
+    },
     profilePicture: {
       type   : String,
       default: null,

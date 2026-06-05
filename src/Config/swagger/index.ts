@@ -12,7 +12,9 @@
 */
 
 import config from "@/Config";
-import { authPaths } from "@/App/Auth/auth.swagger";
+import { authPaths       } from "@/App/Auth/auth.swagger";
+import { socialAuthPaths } from "@/App/Auth/social/social.swagger";
+import { adminPaths      } from "@/App/Admin/admin.swagger";
 
 // ── Reusable schema components ─────────────────────────────────────────────
 const components = {
@@ -33,7 +35,9 @@ const components = {
         email         : { type: "string", example: "john@example.com" },
         role          : { type: "string", enum: ["user", "admin"], example: "user" },
         isVerified    : { type: "boolean", example: true },
-        profilePicture: { type: "string", nullable: true, example: "https://cdn.example.com/avatars/file.webp" },
+        isActive      : { type: "boolean", example: true },
+        googleId      : { type: "string",  nullable: true, example: null },
+        profilePicture: { type: "string",  nullable: true, example: "https://cdn.example.com/avatars/file.webp" },
         createdAt     : { type: "string", format: "date-time" },
         updatedAt     : { type: "string", format: "date-time" },
       },
@@ -72,19 +76,34 @@ export const swaggerSpec = {
   info   : {
     title      : `${config.appName} API`,
     version    : "1.0.0",
-    description: "REST API documentation",
+    description: [
+      "REST API documentation.",
+      "",
+      "## Rate limits",
+      "| Scope  | Window | Max requests |",
+      "|--------|--------|--------------|",
+      "| Global (all `/api/v1` routes) | 1 min | 300 |",
+      "| Auth endpoints (login / register) | 15 min | 10 |",
+      "| Email endpoints (forgot-password / resend-verification) | 1 hr | 5 |",
+      "",
+      "Exceeded limits return **429 Too Many Requests**.",
+    ].join("\n"),
     contact    : { email: config.mail.admin_contact_email },
   },
   servers: [
     { url: "/api/v1", description: "API base path" },
   ],
   tags: [
-    { name: "Auth", description: "Authentication, session management, and user profile" },
+    { name: "Auth",        description: "Authentication, session management, and user profile" },
+    { name: "Social Auth", description: "OAuth 2.0 social login (Google). Browser-redirect flow — open in a tab, not via fetch." },
+    { name: "Admin",       description: "Admin-only user management" },
     // Add a tag here for each new module
   ],
   components,
   paths: {
     ...authPaths,
+    ...socialAuthPaths,
+    ...adminPaths,
     // ...featurePaths,  ← spread new module paths here
   },
 };

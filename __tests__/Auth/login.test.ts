@@ -29,8 +29,8 @@ const validBody = { email: "test@example.com", password: "password123" };
 
 const mockDoc = (overrides = {}) => ({
   _id: "user123", email: "test@example.com", name: "Test User",
-  role: "user", password: "hashed_pw", isVerified: true,
-  toObject: () => ({ _id: "user123", name: "Test User", email: "test@example.com", role: "user", isVerified: true }),
+  role: "user", password: "hashed_pw", isVerified: true, isActive: true,
+  toObject: () => ({ _id: "user123", name: "Test User", email: "test@example.com", role: "user", isVerified: true, isActive: true }),
   ...overrides,
 });
 

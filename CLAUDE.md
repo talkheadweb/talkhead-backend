@@ -273,3 +273,132 @@ App: `node:22-alpine` runs as non-root `node` user. Redis: `redis:7.4-alpine`. D
 - `sendResponse` automatically cleans up uploaded temp files on both success and error responses
 - Role self-elevation is blocked — `role` field is stripped at registration; always defaults to `USER`
 - Password validation: min 8, max 128 characters
+
+---
+
+## Search / filter / pagination pattern
+
+Every list endpoint **must** follow this two-layer pattern. Never pass raw `req.query` to a service.
+
+### Controller layer
+
+Use `queryOptimization<TModel>(req, modelFilterKeys, extraFilterKeys)` to extract a structured `IQueryItems<T>` payload and pass it to the service:
+
+```ts
+import { queryOptimization } from "@/Utils/helper/queryOptimize";
+import { IUser } from "@/App/Auth/types";
+
+// Fields the service will filter by (picked from req.query)
+const FilterKeys: (keyof IUser)[] = [];          // typed model fields
+const ExtraKeys  = ["role", "isVerified"] as const; // string extras (booleans, enums…)
+
+const listItems = catchAsync(async (req, res) => {
+  const payload = queryOptimization<IUser>(req, FilterKeys, [...ExtraKeys]);
+  const { items, meta } = await SomeService.list(payload);
+  sendResponse.success(res, { statusCode: 200, message: "...", data: items, meta, req });
+});
+```
+
+### Service layer
+
+Receive `IQueryItems<Partial<TModel>>` and use the helper functions for pagination and sorting. Build MongoDB filter conditions manually from `filterFields`:
+
+```ts
+import { calculatePagination, manageSorting } from "@/Utils/helper/queryOptimize";
+import { IQueryItems } from "@/Utils/types/query.type";
+
+const list = async (query: IQueryItems<Partial<IUser>>) => {
+  const { page, limit, skip } = calculatePagination(query.paginationFields);
+  const { sortBy, sortOrder } = manageSorting<IUser>(query.sortFields);
+  const { search }            = query.searchFields as { search?: string };
+  const filters               = query.filterFields as Record<string, string | undefined>;
+
+  const mongoFilter: Record<string, unknown> = {};
+
+  // full-text search across multiple fields
+  if (search) {
+    mongoFilter.$or = [
+      { name:  { $regex: search, $options: "i" } },
+      { email: { $regex: search, $options: "i" } },
+    ];
+  }
+
+  // boolean/enum filters that arrive as strings in query params
+  if (filters.role       !== undefined) mongoFilter.role       = filters.role;
+  if (filters.isVerified !== undefined) mongoFilter.isVerified = filters.isVerified === "true";
+
+  // For typed field filters use MongoQueryHelper:
+  //   mongoFilter.price = MongoQueryHelper("Number", "price", filters.price!)
+  //   mongoFilter.date  = MongoQueryHelper("Date",   "date",  filters.date!)
+
+  const [docs, total] = await Promise.all([
+    Model.find(mongoFilter).sort({ [String(sortBy)]: sortOrder === "asc" ? 1 : -1 }).skip(skip).limit(limit).lean(),
+    Model.countDocuments(mongoFilter),
+  ]);
+
+  return { items: docs, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+};
+```
+
+### Key types
+
+| Type / helper | Location | Purpose |
+|---|---|---|
+| `IQueryItems<T>` | `Utils/types/query.type` | Structured query payload (search, filter, pagination, sort) |
+| `queryOptimization<T>()` | `Utils/helper/queryOptimize` | Extracts `IQueryItems` from `req` |
+| `calculatePagination()` | `Utils/helper/queryOptimize` | Converts `{page?,limit?}` → `{page,limit,skip}` |
+| `manageSorting<T>()` | `Utils/helper/queryOptimize` | Converts `{sortBy?,sortOrder?}` → normalised sort |
+| `MongoQueryHelper()` | `Utils/helper/queryOptimize` | Converts a query string value into a MongoDB filter fragment (String/Number/Boolean/Date/ObjectId/NumberRange) |
+
+---
+
+## Mandatory rules for every new feature
+
+These rules are non-negotiable. Every feature delivered in this project MUST satisfy all four requirements before it is considered complete.
+
+### 1 — Swagger / API documentation
+
+Every endpoint must have an OpenAPI definition in `src/App/<FeatureName>/<featureName>.swagger.ts` using the builder DSL in `Config/swagger/helpers.ts`. The spec must be registered in `src/Config/swagger/index.ts` (paths spread + tag added).
+
+### 2 — Feature documentation
+
+Create `docs/features/<featureName>.md` that covers:
+- Endpoint table (method, path, description)
+- Authentication / authorization requirements
+- Request body / query parameter tables
+- Response examples (success + common errors)
+- Business rules and edge cases
+- File structure
+
+### 3 — Tests (mandatory coverage)
+
+Create `__tests__/<FeatureName>/` with **one file per endpoint**. Each file must cover all of:
+
+| Case type        | What to test                                            |
+|------------------|---------------------------------------------------------|
+| Happy path       | 200/201 success with expected response shape            |
+| Validation       | 400 for missing fields, bad formats, constraint violations |
+| Authentication   | 401 when no/invalid token is provided                   |
+| Authorization    | 403 when wrong role accesses a protected route          |
+| Business errors  | 404 not found, 409 conflict, 403 suspended, etc.        |
+
+Use `jest.mock` to isolate DB and Redis. Never hit real infrastructure in unit/integration tests.
+
+### 4 — CLAUDE.md awareness
+
+If a new feature introduces a project-wide pattern (new middleware, new util, new naming convention), add a short note to the relevant section of this file so future Claude sessions are aware of it.
+
+---
+
+## Feature checklist (copy for each new feature)
+
+```
+[ ] src/App/<Feature>/ files created (controller, service, model, routes, types, validation)
+[ ] src/App/<Feature>/<feature>.swagger.ts created and registered in Config/swagger/index.ts
+[ ] Route registered in src/Routes/index.ts
+[ ] docs/features/<feature>.md written
+[ ] __tests__/<Feature>/ files written (one per endpoint, all case types covered)
+[ ] CLAUDE.md updated if new patterns introduced
+[ ] pnpm build passes (no TypeScript errors)
+[ ] pnpm test passes (all tests green)
+```

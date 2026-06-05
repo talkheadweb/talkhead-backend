@@ -150,6 +150,7 @@ type OperationSpec = {
   summary     : string;
   description ?: string | string[];   // array is auto-joined with spaces
   secured     ?: boolean;             // true → requires Bearer token
+  parameters  ?: object[];            // path / query / header params
   body        ?: object;
   responses   : object;
 };
@@ -160,8 +161,9 @@ const buildOperation = (tag: string, spec: OperationSpec) => ({
   ...(spec.description
     ? { description: Array.isArray(spec.description) ? spec.description.join(" ") : spec.description }
     : {}),
-  ...(spec.secured ? { security: [{ BearerAuth: [] }] } : {}),
-  ...(spec.body ? { requestBody: spec.body } : {}),
+  ...(spec.secured     ? { security   : [{ BearerAuth: [] }] } : {}),
+  ...(spec.parameters  ? { parameters : spec.parameters } : {}),
+  ...(spec.body        ? { requestBody: spec.body } : {}),
   responses  : spec.responses,
 });
 
