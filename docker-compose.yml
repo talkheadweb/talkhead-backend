@@ -3,8 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    ports:
-      - "9000:9000"
+    # No ports: — Traefik routes traffic via the shared proxy network.
+    # Exposing a host port would bypass Traefik entirely.
     env_file:
       - .env
     volumes:
@@ -13,7 +13,29 @@ services:
       redis-server:
         condition: service_healthy
     networks:
-      - backend
+      - backend # internal — app ↔ redis only
+      - traefik # external — Traefik discovers the container here
+    labels:
+      - "traefik.enable=true"
+
+      # ── HTTPS router ─────────────────────────────────────────────────────
+      - "traefik.http.routers.talkhead-api.rule=Host(`dev-api.talkhead.ai`)"
+      - "traefik.http.routers.talkhead-api.entrypoints=websecure"
+      - "traefik.http.routers.talkhead-api.tls.certresolver=letsencrypt"
+
+      # ── HTTP → HTTPS redirect ─────────────────────────────────────────────
+      - "traefik.http.routers.talkhead-api-http.rule=Host(`dev-api.talkhead.ai`)"
+      - "traefik.http.routers.talkhead-api-http.entrypoints=web"
+      - "traefik.http.routers.talkhead-api-http.middlewares=https-redirect"
+      - "traefik.http.middlewares.https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.https-redirect.redirectscheme.permanent=true"
+
+      # ── Service port (what the app listens on inside the container) ───────
+      - "traefik.http.services.talkhead-api.loadbalancer.server.port=9000"
+
+      # ── Tell Traefik which network to use to reach this container ─────────
+      # Mandatory when a container is attached to multiple networks.
+      - "traefik.docker.network=traefik"
     healthcheck:
       test:
         [
@@ -33,16 +55,21 @@ services:
     command:
       [
         "redis-server",
-        "--requirepass", "${REDIS_PASSWORD}",
-        "--appendonly", "yes",
-        "--appendfsync", "everysec",
-        "--dir", "/data",
-        "--save", "",
+        "--requirepass",
+        "${REDIS_PASSWORD}",
+        "--appendonly",
+        "yes",
+        "--appendfsync",
+        "everysec",
+        "--dir",
+        "/data",
+        "--save",
+        "",
       ]
     volumes:
       - redis_data:/data
     networks:
-      - backend
+      - backend # redis is internal only — never exposed to Traefik
     healthcheck:
       # Use REDISCLI_AUTH env var instead of -a flag so the password
       # is not visible in the process argument list (ps/top).
@@ -58,4 +85,8 @@ volumes:
 
 networks:
   backend:
-    driver: bridge
+    driver: bridge # internal — app ↔ redis only
+
+  traefik:
+    external: true # already created by Dockpoly — do NOT let compose recreate it
+    name: traefik # verify the exact name with: docker network ls
