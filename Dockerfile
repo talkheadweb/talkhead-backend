@@ -16,9 +16,12 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/dist        ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
+
+# Run as non-root user — principle of least privilege
+USER node
 
 EXPOSE 9000
 

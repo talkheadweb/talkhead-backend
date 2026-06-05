@@ -1,10 +1,10 @@
 import config from "@/Config";
-import { TUserPublic } from "./types";
+import { HydratedDocument } from "mongoose";
+import { IUser, TUserPublic } from "./types";
 
-// ── Strip password from Mongoose doc ──────────────────────────────────────
-export const toPublicUser = (user: any): TUserPublic => {
-  const obj = user.toObject ? user.toObject() : { ...user };
-  const { password: _pw, ...rest } = obj;
+// ── Strip sensitive fields from a Mongoose user document ──────────────────
+export const toPublicUser = (user: HydratedDocument<IUser>): TUserPublic => {
+  const { password: _pw, ...rest } = user.toObject();
   return rest as TUserPublic;
 };
 

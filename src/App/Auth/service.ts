@@ -12,6 +12,7 @@ import {
   TLoginInput,
   TLoginResponse,
   TRegisterInput,
+  TSocialLoginInput,
   TUpdateProfileInput,
   TUserPublic,
 } from "./types";
@@ -70,6 +71,9 @@ const login = async (payload: TLoginInput): Promise<TLoginResponse> => {
 
   const user = await UserModel.findOne({ email }).select("+password");
   if (!user) throw new CustomError("Invalid email or password.", 401);
+
+  // Social-login accounts have no password — direct them to the correct flow.
+  if (!user.password) throw new CustomError("This account uses social login. Please sign in with Google.", 401);
 
   const isMatch = await HashHelper.comparePassword(password, user.password);
   if (!isMatch) throw new CustomError("Invalid email or password.", 401);
@@ -187,6 +191,8 @@ const forgotPassword = async (email: string): Promise<void> => {
  * Business rules:
  * - Token must exist in Redis and match exactly (1-hour TTL enforced by Redis).
  * - Token is deleted after a successful reset (single-use).
+ * - Refresh token is revoked so any stolen session can no longer be used
+ *   after the password is changed (same behaviour as changePassword).
  */
 const resetPassword = async (userId: string, token: string, password: string): Promise<void> => {
   const stored = await AuthRedisService.resetToken.get(userId);
@@ -195,7 +201,12 @@ const resetPassword = async (userId: string, token: string, password: string): P
 
   const hashed = await HashHelper.generateHashPassword(password);
   await UserModel.findByIdAndUpdate(userId, { password: hashed });
-  await AuthRedisService.resetToken.del(userId);
+
+  // Invalidate both tokens — reset is complete, force a fresh login
+  await Promise.all([
+    AuthRedisService.resetToken.del(userId),
+    AuthRedisService.refreshToken.del(userId),
+  ]);
 
   log.info("Password reset successfully", { userId });
 };
@@ -329,6 +340,8 @@ const changePassword = async (
   const user = await UserModel.findById(userId).select("+password");
   if (!user) throw new CustomError("User not found.", 404);
 
+  if (!user.password) throw new CustomError("This account uses social login and has no password to change.", 400);
+
   const isMatch = await HashHelper.comparePassword(currentPassword, user.password);
   if (!isMatch) throw new CustomError("Current password is incorrect.", 400);
 
@@ -341,9 +354,59 @@ const changePassword = async (
   log.info("Password changed", { userId });
 };
 
+// ── Social login (OAuth) ───────────────────────────────────────────────────
+/**
+ * Find-or-create a user from an OAuth provider profile.
+ *
+ * Business rules:
+ * - Match by `providerId` first (returning user on same provider).
+ * - If no match, look up by email — an existing email/password account gets the
+ *   provider linked automatically (account merging). The password remains set,
+ *   so the user can still sign in both ways.
+ * - If no existing account at all, a new one is created with `isVerified: true`
+ *   (the provider already verified the address).
+ * - Tokens are issued identically to the normal login flow.
+ */
+const socialLogin = async (payload: TSocialLoginInput): Promise<TLoginResponse> => {
+  const { provider, providerId, email, name, picture } = payload;
+
+  // 1. Try to find by provider-specific ID
+  const lookupField = `${provider}Id`; // e.g. "googleId"
+  let user = await UserModel.findOne({ [lookupField]: providerId });
+
+  if (!user) {
+    // 2. Fall back to email — link the OAuth account to an existing user
+    user = await UserModel.findOne({ email });
+    if (user) {
+      (user as any)[lookupField] = providerId;
+      user.isVerified = true;
+      if (picture && !user.profilePicture) user.profilePicture = picture;
+      await user.save();
+    } else {
+      // 3. First-time social login — create a new account
+      user = await UserModel.create({
+        name,
+        email,
+        [lookupField] : providerId,
+        isVerified    : true,   // provider already verified the email
+        profilePicture: picture ?? null,
+      });
+    }
+  }
+
+  const tokenPayload = { uid: user._id.toString(), email: user.email, role: user.role };
+  const accessToken  = JwtHelper.signAccessToken(tokenPayload);
+  const refreshToken = JwtHelper.signRefreshToken(tokenPayload);
+  await AuthRedisService.refreshToken.set(user._id.toString(), refreshToken);
+
+  log.info("Social login", { provider, userId: user._id });
+  return { user: toPublicUser(user), accessToken, refreshToken };
+};
+
 export const AuthService = {
   register,
   login,
+  socialLogin,
   logout,
   refreshAccessToken,
   forgotPassword,

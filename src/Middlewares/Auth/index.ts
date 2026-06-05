@@ -8,7 +8,7 @@ const log = LogService.AUTH;
 
 /**
  * Validates the Bearer access token from the Authorization header.
- * Attaches uid, email, role to req.headers for downstream use.
+ * Attaches the verified payload to `req.user` for downstream use.
  *
  * Usage: router.get("/me", authenticate, controller)
  */
@@ -22,9 +22,11 @@ const authenticate = catchAsync(async (req: Request, _res: Response, next: NextF
 
   try {
     const payload = JwtHelper.verifyAccessToken(token);
-    req.headers["uid"]   = String(payload.uid);
-    req.headers["email"] = payload.email;
-    req.headers["role"]  = payload.role;
+    req.user = {
+      uid  : String(payload.uid),
+      email: payload.email as string,
+      role : payload.role as string,
+    };
     log.debug("Token verified", { uid: payload.uid });
   } catch {
     throw new CustomError("Invalid or expired access token.", 401);

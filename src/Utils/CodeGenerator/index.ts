@@ -18,10 +18,7 @@ const charsets: {
     alphabetic: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ',
     alphanumeric: '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ',
 };
-const Charset = (name: ECodeGeneratorCharset) => {
-    // console.log('line 21', { name, a: charsets[name] });
-    return charsets[name]
-};
+const Charset = (name: ECodeGeneratorCharset) => charsets[name];
 const createConfig = (config: TCodeGeneratorConfig) => {
     return {
         count: config.count ?? 1,
@@ -32,13 +29,6 @@ const createConfig = (config: TCodeGeneratorConfig) => {
         pattern: config.pattern ?? placeholder.repeat(config.length ?? 8),
     }
 };
-
-// type TGenerateOne = {
-//     pattern: string;
-//     charset: string;
-//     prefix: string;
-//     postfix: string;
-// }
 
 const generateOne = (payload: TSingleCodeGenerator) => {
     const { charset, pattern, prefix, postfix } = createConfig(payload);
@@ -98,7 +88,6 @@ export const CodeGeneratorUtils = {
     generateOne
 }
 
-// import { ECodeGeneratorCharset, TCodeGeneratorConfig } from "@/Utils/CodeGenerator/types";
 
 // const placeholder = '#';
 

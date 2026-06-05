@@ -19,4 +19,6 @@ process.env.CLOUDFLARE_ACCESS_KEY_ID    = "test-key";
 process.env.CLOUDFLARE_SECRET_ACCESS_KEY= "test-secret";
 process.env.CLOUDFLARE_BUCKET_NAME      = "test-bucket";
 process.env.FRONTEND_VERIFY_PAGE_URL    = "http://localhost:3000/verify-email";
-process.env.FRONTEND_RESET_PAGE_URL     = "http://localhost:3000/reset-password";
+process.env.FRONTEND_RESET_PAGE_URL         = "http://localhost:3000/reset-password";
+process.env.FRONTEND_SOCIAL_CALLBACK_URL    = "http://localhost:3000/auth/callback";
+process.env.CORS_ALLOWED_ORIGINS        = "http://localhost:3000";

@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { isValidMongoID } from "@/Utils/validation/mongoose.validation";
 
+const password = (label = "Password") =>
+  z.string({ required_error: `${label} is required.` })
+   .min(8,   `${label} must be at least 8 characters.`)
+   .max(128, `${label} must be at most 128 characters.`);
+
 const registerZodSchema = z.object({
   body: z.object({
     name: z
@@ -13,9 +18,7 @@ const registerZodSchema = z.object({
       .trim()
       .toLowerCase()
       .email("Please provide a valid email address."),
-    password: z
-      .string({ required_error: "Password is required." })
-      .min(8, "Password must be at least 8 characters."),
+    password: password(),
     // role is intentionally NOT accepted from clients — always USER on
     // self-registration. Admin accounts must be promoted by an existing admin.
   }),
@@ -48,9 +51,7 @@ const resetPasswordZodSchema = z.object({
       .string({ required_error: "User ID is required." })
       .refine(isValidMongoID, { message: "Invalid user ID." }),
     token   : z.string({ required_error: "Reset token is required." }),
-    password: z
-      .string({ required_error: "Password is required." })
-      .min(8, "Password must be at least 8 characters."),
+    password: password(),
   }),
 });
 
@@ -88,9 +89,7 @@ const updateProfileZodSchema = z.object({
 const changePasswordZodSchema = z.object({
   body: z.object({
     currentPassword: z.string({ required_error: "Current password is required." }).min(1),
-    newPassword    : z
-      .string({ required_error: "New password is required." })
-      .min(8, "New password must be at least 8 characters."),
+    newPassword    : password("New password"),
   }),
 });
 

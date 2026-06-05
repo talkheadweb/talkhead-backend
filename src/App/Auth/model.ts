@@ -16,9 +16,15 @@ const UserSchema = new Schema<IUser>(
       trim     : true,
     },
     password: {
-      type    : String,
-      required: [true, "Password is required."],
-      select  : false,    // never returned in queries by default
+      type  : String,
+      select: false,    // never returned in queries by default
+      // Not required at schema level — social-login accounts have no password.
+      // Application logic enforces it for email/password users via Zod validation.
+    },
+    googleId: {
+      type  : String,
+      sparse: true,  // unique index that allows multiple null/missing values
+      unique: true,
     },
     role: {
       type   : String,

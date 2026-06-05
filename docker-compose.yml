@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    ports:
+      - "9000:9000"
     env_file:
       - .env
     volumes:
@@ -31,23 +33,20 @@ services:
     command:
       [
         "redis-server",
-        "--requirepass",
-        "${REDIS_PASSWORD}",
-        "--appendonly",
-        "yes",
-        "--appendfsync",
-        "everysec",
-        "--dir",
-        "/data",
-        "--save",
-        "",
+        "--requirepass", "${REDIS_PASSWORD}",
+        "--appendonly", "yes",
+        "--appendfsync", "everysec",
+        "--dir", "/data",
+        "--save", "",
       ]
     volumes:
       - redis_data:/data
     networks:
       - backend
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      # Use REDISCLI_AUTH env var instead of -a flag so the password
+      # is not visible in the process argument list (ps/top).
+      test: ["CMD", "sh", "-c", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping"]
       interval: 10s
       timeout: 5s
       retries: 5

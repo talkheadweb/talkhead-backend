@@ -13,7 +13,8 @@ export interface IUser {
   _id            : Types.ObjectId;
   name           : string;
   email          : string;
-  password       : string;
+  password      ?: string;         // absent for social-login-only accounts
+  googleId      ?: string;         // Google OAuth sub — present for Google-linked accounts
   role           : EUserRole;
   isVerified     : boolean;
   profilePicture : string | null;
@@ -32,6 +33,14 @@ export type TRegisterInput = {
 export type TLoginInput = {
   email    : string;
   password : string;
+};
+
+export type TSocialLoginInput = {
+  provider  : "google";
+  providerId: string;       // OAuth sub / unique ID from the provider
+  email     : string;
+  name      : string;
+  picture  ?: string;       // avatar URL from the provider (best-effort)
 };
 
 export type TLoginResponse = {

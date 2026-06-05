@@ -2,24 +2,23 @@ import CustomError from "@/Utils/errors/customError.class";
 import catchAsync from "@/Utils/helper/catchAsync";
 import { NextFunction, Request, Response } from "express";
 
-const AccessLimit = (accessRole: string[]) => catchAsync(async (req: Request, res: Response, next: NextFunction) => {
-    // const accessToken = z.string({
-    //     required_error: "Access token is required."
-    // }).parse(req.headers.authorization?.split(' ')[1])
-    // const payload = jwt.verify(accessToken, Config.jwt.refreshToken.secret as string)
-    // const {uid, role, email} = payload as CustomJwtPayload
-    const role = req.headers.role as string
+/**
+ * Role-based access guard.
+ * Must be used AFTER the `authenticate` middleware, which sets `req.user`.
+ *
+ * Usage:
+ *   router.delete("/admin/users/:id", authenticate, AccessLimit(["admin"]), controller)
+ */
+const AccessLimit = (allowedRoles: string[]) =>
+  catchAsync(async (req: Request, _res: Response, next: NextFunction) => {
+    const role = req.user?.role;
 
-    if (accessRole.includes(role)) {
-
-        // req.body.uid = uid
-        // req.body.role = role
-        // req.body.email = email
-
-        next()
+    if (role && allowedRoles.includes(role)) {
+      next();
     } else {
-        throw new CustomError('Access permission denied. ', 401)
+      // 403 Forbidden — user is authenticated but lacks the required role
+      throw new CustomError("You do not have permission to perform this action.", 403);
     }
-})
+  });
 
-export default AccessLimit
+export default AccessLimit;

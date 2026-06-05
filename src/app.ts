@@ -4,7 +4,9 @@
   All startup logic (DB, Redis, bootstrap) lives in src/index.ts.
 */
 
+import "@/App/Auth/strategies/google.strategy"; // registers passport strategy (side-effect)
 import morganMiddleware from "@/Middlewares/Debug/morganMiddleware";
+import passport from "passport";
 import globalErrorHandler from "@/Middlewares/Errors/globalErrorHandler";
 import notFoundHandler from "@/Middlewares/Errors/notFoundHandler";
 import { swaggerSpec } from "@/Config/swagger";
@@ -31,6 +33,7 @@ const allowedOrigins = config.cors.allowed_origins
 app.use(morganMiddleware);
 app.use(express.json({ limit: "10mb" }));
 app.use(cookieParser());
+app.use(passport.initialize()); // stateless — no sessions; needed for OAuth flows
 app.use(cors({
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);

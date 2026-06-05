@@ -1,6 +1,6 @@
 /*
   Application entry point.
-  Startup order: MongoDB → Redis bootstrap → HTTP server listen
+  Startup order: MongoDB → bootstrap → HTTP server listen
   Shutdown order: stop accepting → close connections → disconnect DB/Redis → exit
 */
 
@@ -39,51 +39,43 @@ main();
 
 // ── Graceful shutdown ──────────────────────────────────────────────────────
 /**
- * Closes the HTTP server, then disconnects DB and Redis before exiting.
- * `server.closeAllConnections()` drops keep-alive connections immediately so
- * we don't wait for idle clients to time out (Node 18.2+).
+ * Closes the HTTP server, disconnects DB and Redis, then exits.
+ * A hard-exit timer is started immediately as a fallback — if cleanup takes
+ * longer than 10 s (e.g. a hung DB query), the process is force-killed.
  */
-const shutdown = async (signal: string, exitCode: number) => {
+const shutdown = async (signal: string, exitCode: number): Promise<void> => {
   log.warn(`${signal} received — starting graceful shutdown`);
 
-  // 1. Stop accepting new HTTP requests; kill idle keep-alive connections.
+  // Start the hard-exit fallback before any async work begins.
+  // .unref() so the timer never prevents exit on its own if cleanup finishes.
+  setTimeout(() => {
+    log.error("Graceful shutdown timed out — forcing exit");
+    process.exit(exitCode);
+  }, 10_000).unref();
+
+  // Stop accepting new HTTP requests; drop idle keep-alive connections.
   server.closeAllConnections();
   server.close();
 
-  // 2. Disconnect data stores so their connection pools release cleanly.
-  try {
-    await Promise.allSettled([
-      mongoose.disconnect(),
-      RedisClient.quit(),
-      RedisEventClient.quit(),
-    ]);
-    log.info("DB and Redis disconnected.");
-  } catch {
-    // allSettled never rejects, but keep the catch for safety
-  }
+  // Disconnect data stores so their connection pools release cleanly.
+  await Promise.allSettled([
+    mongoose.disconnect(),
+    RedisClient.quit(),
+    RedisEventClient.quit(),
+  ]);
 
   log.info("Graceful shutdown complete.");
   process.exit(exitCode);
 };
 
-// Hard-exit fallback: if graceful shutdown takes more than 10 s, force quit.
-const hardExit = (code: number) =>
-  setTimeout(() => {
-    log.error("Graceful shutdown timed out — forcing exit");
-    process.exit(code);
-  }, 10_000).unref(); // .unref() so this timer never prevents exit on its own
-
-process.on("SIGTERM", () => { hardExit(0); shutdown("SIGTERM", 0); });
-process.on("SIGINT",  () => { hardExit(0); shutdown("SIGINT",  0); });
+process.on("SIGTERM", () => shutdown("SIGTERM", 0));
+process.on("SIGINT",  () => shutdown("SIGINT",  0));
 
 process.on("uncaughtException", (err) => {
   log.error("uncaughtException →", err);
-  hardExit(1);
   shutdown("uncaughtException", 1);
 });
 
 process.on("unhandledRejection", (reason) => {
-  // Log and continue — do not crash on unhandled promise rejections in production.
-  // Promote to uncaughtException if you want crash-on-rejection behavior.
   log.error("unhandledRejection →", reason as any);
 });
