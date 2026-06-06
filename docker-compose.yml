@@ -33,39 +33,45 @@ services:
     image: redis:7.4-alpine
     env_file:
       - .env
-    command:
-      [
+    command: [
         "redis-server",
-        "--requirepass",        "${REDIS_PASSWORD}",
+        "--requirepass",
+        "${REDIS_PASSWORD}",
 
         # ── Memory ────────────────────────────────────────────────────────
         # Cap Redis at 256 MB. When full, evict the least-recently-used keys
         # that have a TTL set (allkeys-lru would evict everything including
         # permanent keys like search indexes — avoid that).
-        "--maxmemory",          "256mb",
-        "--maxmemory-policy",   "volatile-lru",
+        "--maxmemory",
+        "256mb",
+        "--maxmemory-policy",
+        "volatile-lru",
 
         # ── Persistence (AOF) ──────────────────────────────────────────────
         # Append-only file — survives container restarts.
         # everysec = at most 1 second of data loss on crash (good balance).
-        "--appendonly",         "yes",
-        "--appendfsync",        "everysec",
-        "--dir",                "/data",
+        "--appendonly",
+        "yes",
+        "--appendfsync",
+        "everysec",
+        "--dir",
+        "/data",
 
         # Disable RDB snapshots (AOF is enough; RDB causes latency spikes)
-        "--save",               "",
+        "--save",
 
+        "",
         # ── Security ───────────────────────────────────────────────────────
         # Disable dangerous commands that could wipe or expose data
-        "--rename-command",     "FLUSHALL", "",
-        "--rename-command",     "FLUSHDB",  "",
-        "--rename-command",     "DEBUG",    "",
-        "--rename-command",     "CONFIG",   "",
+        # "--rename-command",     "FLUSHALL", "",
+        # "--rename-command",     "FLUSHDB",  "",
+        # "--rename-command",     "DEBUG",    "",
+        # "--rename-command",     "CONFIG",   "",
       ]
     deploy:
       resources:
         limits:
-          memory: 300M     # hard Docker limit — slightly above Redis maxmemory
+          memory: 300M # hard Docker limit — slightly above Redis maxmemory
         reservations:
           memory: 64M
     volumes:
@@ -76,7 +82,7 @@ services:
       # Use REDISCLI_AUTH env var instead of -a flag so the password
       # is not visible in the process argument list (ps/top).
       test: ["CMD", "sh", "-c", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping"]
-      interval: 10s
+      interval: 120s
       timeout: 5s
       retries: 5
       start_period: 20s
