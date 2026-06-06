@@ -59,8 +59,14 @@ services:
 
         # Disable RDB snapshots (AOF is enough; RDB causes latency spikes)
         "--save",
-
         "",
+
+        # ── Keyspace events ────────────────────────────────────────────────
+        # E = keyevent events, x = expired events
+        # Enables __keyevent@0__:expired notifications (used by RedisEventClient)
+        "--notify-keyspace-events",
+        "Ex",
+
         # ── Security ───────────────────────────────────────────────────────
         # Disable dangerous commands that could wipe or expose data
         # "--rename-command",     "FLUSHALL", "",

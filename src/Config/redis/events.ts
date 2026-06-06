@@ -33,8 +33,9 @@ RedisEventClient.on("reconnecting", ()    => log.warn (`[${NAME}] reconnectingâ€
 RedisEventClient.on("end",          ()    => log.warn (`[${NAME}] connection ended`));
 
 // Re-subscribe on every (re)connect â€” subscriptions are dropped on disconnect.
+// notify-keyspace-events is configured via --notify-keyspace-events in the
+// Redis server command (docker-compose.yml) so no runtime CONFIG SET is needed.
 RedisEventClient.on("ready", () => {
-  RedisEventClient.config("SET", "notify-keyspace-events", "Ex");
   RedisEventClient.subscribe(CHANNEL, (err) => {
     if (err) log.error(`[${NAME}] subscribe failed`, { message: err.message });
     else     log.info (`[${NAME}] subscribed to ${CHANNEL}`);
