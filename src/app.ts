@@ -51,7 +51,7 @@ app.use(cors({
 // To re-enable in prod, add authentication in front of this route first.
 if (config.node_env !== ENodeEnv.PROD) {
   app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
-    customSiteTitle: "express-ts-starter API Docs",
+    customSiteTitle: `${config.appName} API Docs`,
     swaggerOptions  : { persistAuthorization: true },
   }));
 }

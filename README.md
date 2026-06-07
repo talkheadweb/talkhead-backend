@@ -1,4 +1,4 @@
-# express-ts-starter
+# Talkhead Backend
 
 Production-ready Node.js / Express / TypeScript REST API starter.
 
@@ -10,7 +10,7 @@ Production-ready Node.js / Express / TypeScript REST API starter.
 
 ```bash
 # 1. Clone and install
-git clone <repo-url> && cd talkhead-backend
+git clone https://github.com/talkheadweb/talkhead-backend.git && cd talkhead-backend
 pnpm install
 
 # 2. Configure environment

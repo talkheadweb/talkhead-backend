@@ -10,3 +10,6 @@ output
 *.ds_store
 graphify-out
 jest.setup.js
+CLAUDE.md
+claude.md
+.claude/

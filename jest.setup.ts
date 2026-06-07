@@ -1,5 +1,5 @@
 // Set required env vars BEFORE any module loads so Zod config validation passes
-process.env.APP_NAME                    = "talkhead-test";
+process.env.APP_NAME                    = "talkhead-backend-test";
 process.env.NODE_ENV                    = "development";
 process.env.PORT                        = "9000";
 process.env.BACKEND_BASE_URL            = "http://localhost:9000";

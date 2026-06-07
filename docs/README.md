@@ -32,7 +32,7 @@ One document per feature module. Each covers: endpoint table, auth requirements,
 |---|---|
 | [`features/admin.md`](features/admin.md) | Admin user management (list, create, update, password, delete) |
 
-> **Adding a new feature?** Copy the checklist from `CLAUDE.md` and create `docs/features/<feature>.md` before opening a PR.
+> **Adding a new feature?** Create `docs/features/<feature>.md` before opening a PR.
 
 ---
 

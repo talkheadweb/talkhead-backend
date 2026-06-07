@@ -5,8 +5,8 @@
 ## Getting started
 
 ```bash
-git clone <repo-url>
-cd express-ts-starter
+git clone https://github.com/talkheadweb/talkhead-backend.git
+cd talkhead-backend
 pnpm install
 cp .env.example .env   # fill in values — see docs/deployment.md
 pnpm dev               # hot-reload dev server on :9000
