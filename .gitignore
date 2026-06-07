@@ -3,7 +3,7 @@ node_modules
 dist
 
 *.lock
-pnpm-lock.yaml
+# pnpm-lock.yaml
 application-logs
 output
 .DS_Store

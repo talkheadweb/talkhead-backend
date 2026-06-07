@@ -1,7 +1,7 @@
-import fs from 'fs';
-import path from 'path';
+// import fs from 'fs';            // re-enable when file logging is turned back on
+// import path from 'path';        // re-enable when file logging is turned back on
 import winston from "winston";
-import DailyRotateFile from 'winston-daily-rotate-file';
+// import DailyRotateFile from 'winston-daily-rotate-file'; // re-enable when file logging is turned back on
 import { CustomLogger } from ".";
 import envConfig from "..";
 import { ENodeEnv } from "../utils/config.types";
@@ -34,40 +34,41 @@ export const baseLogger = winston.createLogger({
   transports: [consoleTransport],
 });
 
-// ── File transports ────────────────────────────────────────────────────────
-// Directories are created once at startup; DailyRotateFile handles date-based
-// file rotation internally. The directory is fixed — only the filename rotates.
-const logsRoot = path.resolve(process.cwd(), envConfig.application_log_config.log_dir);
-fs.mkdirSync(path.join(logsRoot, 'combined'), { recursive: true });
-fs.mkdirSync(path.join(logsRoot, 'error'),    { recursive: true });
-
-const fileFormat = winston.format.combine(
-  winston.format.uncolorize(),
-  winston.format.timestamp(),
-  winston.format.json(),
-);
-
-baseLogger.add(new DailyRotateFile({
-  dirname : path.join(logsRoot, 'combined'),
-  filename: 'log-%DATE%',
-  extension: '.txt',
-  datePattern: 'YYYY-MM-DD',
-  maxSize : envConfig.application_log_config.max_size,
-  maxFiles: envConfig.application_log_config.max_files,
-  level   : envConfig.application_log_config.log_level,
-  format  : fileFormat,
-}));
-
-baseLogger.add(new DailyRotateFile({
-  dirname : path.join(logsRoot, 'error'),
-  filename: 'log-%DATE%',
-  extension: '.txt',
-  datePattern: 'YYYY-MM-DD',
-  maxSize : envConfig.application_log_config.max_size,
-  maxFiles: envConfig.application_log_config.max_files,
-  level   : envConfig.application_log_config.error_logs_level,
-  format  : fileFormat,
-}));
+// ── File transports (disabled) ─────────────────────────────────────────────
+// Uncomment to re-enable writing logs to the application-logs/ directory.
+// Make sure the volume mount in docker-compose.yml is also uncommented.
+//
+// const logsRoot = path.resolve(process.cwd(), envConfig.application_log_config.log_dir);
+// fs.mkdirSync(path.join(logsRoot, 'combined'), { recursive: true });
+// fs.mkdirSync(path.join(logsRoot, 'error'),    { recursive: true });
+//
+// const fileFormat = winston.format.combine(
+//   winston.format.uncolorize(),
+//   winston.format.timestamp(),
+//   winston.format.json(),
+// );
+//
+// baseLogger.add(new DailyRotateFile({
+//   dirname : path.join(logsRoot, 'combined'),
+//   filename: 'log-%DATE%',
+//   extension: '.txt',
+//   datePattern: 'YYYY-MM-DD',
+//   maxSize : envConfig.application_log_config.max_size,
+//   maxFiles: envConfig.application_log_config.max_files,
+//   level   : envConfig.application_log_config.log_level,
+//   format  : fileFormat,
+// }));
+//
+// baseLogger.add(new DailyRotateFile({
+//   dirname : path.join(logsRoot, 'error'),
+//   filename: 'log-%DATE%',
+//   extension: '.txt',
+//   datePattern: 'YYYY-MM-DD',
+//   maxSize : envConfig.application_log_config.max_size,
+//   maxFiles: envConfig.application_log_config.max_files,
+//   level   : envConfig.application_log_config.error_logs_level,
+//   format  : fileFormat,
+// }));
 
 export const LogService = Object.fromEntries(
   ServiceList.map(s => [s.code, new CustomLogger(s.code)])
