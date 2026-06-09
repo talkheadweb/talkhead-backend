@@ -88,6 +88,7 @@ const envConfig = z
       concurrency   : z.number().default(1),             // jobs processed at a time
     }),
 
+
     // Rate limiting — windowMs in ms, max = allowed requests per window per key
     rate_limit: z.object({
       global: z.object({ windowMs: z.number(), max: z.number() }), // blanket /api/v1
@@ -163,6 +164,7 @@ const envConfig = z
       external_api_url: process.env.QUEUE_EXTERNAL_API_URL,
       concurrency     : process.env.QUEUE_CONCURRENCY ? parseInt(process.env.QUEUE_CONCURRENCY) : 1,
     },
+
 
     rate_limit: {
       global: {
