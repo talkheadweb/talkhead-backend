@@ -145,6 +145,28 @@ export const errors = (...codes: number[]): Record<number, object> =>
     return acc;
   }, {} as Record<number, object>);
 
+// ── Query parameter builders ──────────────────────────────────────────────
+
+/** Build a single OpenAPI query parameter object. */
+export const queryParam = (
+  name       : string,
+  schema     : Schema,
+  description: string,
+  required   = false,
+): object => ({ in: "query", name, required, schema, description });
+
+/** Standard pagination params — include on every list endpoint. */
+export const paginationParams: object[] = [
+  queryParam("page",  { type: "integer", minimum: 1, default: 1 },   "Page number (1-based)"),
+  queryParam("limit", { type: "integer", minimum: 1, maximum: 100, default: 10 }, "Items per page"),
+];
+
+/** Standard sort params — include on every list endpoint. */
+export const sortParams: object[] = [
+  queryParam("sortBy",    { type: "string", default: "createdAt" },                      "Field to sort by"),
+  queryParam("sortOrder", { type: "string", enum: ["asc", "desc"], default: "desc" }, "Sort direction"),
+];
+
 // ── Route (operation) builders ─────────────────────────────────────────────
 type OperationSpec = {
   summary     : string;
