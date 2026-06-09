@@ -15,6 +15,8 @@ import config from "@/Config";
 import { authPaths       } from "@/App/Auth/auth.swagger";
 import { socialAuthPaths } from "@/App/Auth/social/social.swagger";
 import { adminPaths      } from "@/App/Admin/admin.swagger";
+import { queuePaths      } from "@/App/Queue/queue.swagger";
+import { generationPaths } from "@/App/Core/Generation/generation.swagger";
 
 // ── Reusable schema components ─────────────────────────────────────────────
 const components = {
@@ -97,6 +99,8 @@ export const swaggerSpec = {
     { name: "Auth",        description: "Authentication, session management, and user profile" },
     { name: "Social Auth", description: "OAuth 2.0 social login (Google). Browser-redirect flow — open in a tab, not via fetch." },
     { name: "Admin",       description: "Admin-only user management" },
+    { name: "Queue",       description: "Queue job management — API key protected. Used by external services to create and manage queue jobs." },
+    { name: "Generation",  description: "AI generation jobs — create, track, and manage audio/video generation requests." },
     // Add a tag here for each new module
   ],
   components,
@@ -104,6 +108,8 @@ export const swaggerSpec = {
     ...authPaths,
     ...socialAuthPaths,
     ...adminPaths,
+    ...queuePaths,
+    ...generationPaths,
     // ...featurePaths,  ← spread new module paths here
   },
 };

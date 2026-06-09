@@ -1,9 +1,20 @@
 import { cleanupTempFiles } from "@/Utils/file/upload";
+import { BullWorker } from "@/Config/queue";
+import { processQueueJob } from "@/Config/queue/processors";
 
 export async function bootstrap() {
     await initRedisIndex();
     await refreshRedisCache();
-    cleanupTempFiles(); // remove orphaned temp files older than 1 hour from previous runs
+    cleanupTempFiles();
+    startQueueWorker();
+}
+
+function startQueueWorker() {
+  // Instantiate and start the BullMQ worker.
+  // The processor function handles all job processing logic.
+  // To add a new processor: add a file to Config/queue/processors/ and register it in processors/index.ts
+  const worker = new BullWorker(processQueueJob);
+  worker.start();
 }
 
 async function refreshRedisCache() {

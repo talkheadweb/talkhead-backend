@@ -81,6 +81,13 @@ const envConfig = z
       max_size        : z.string().default("20m"),
     }),
 
+    queue: z.object({
+      name          : z.string().default("main-queue"),
+      api_key       : z.string(),                        // API key for external team
+      external_api_url: z.string(),                      // other team's backend URL
+      concurrency   : z.number().default(1),             // jobs processed at a time
+    }),
+
     // Rate limiting — windowMs in ms, max = allowed requests per window per key
     rate_limit: z.object({
       global: z.object({ windowMs: z.number(), max: z.number() }), // blanket /api/v1
@@ -148,6 +155,13 @@ const envConfig = z
       log_dir         : process.env.APPLICATION_LOG_DIR          || "../application-logs",
       max_files       : process.env.APPLICATION_LOG_MAX_FILES    || "15d",
       max_size        : process.env.APPLICATION_LOG_MAX_SIZE     || "20m",
+    },
+
+    queue: {
+      name            : process.env.QUEUE_NAME          || "main-queue",
+      api_key         : process.env.QUEUE_API_KEY,
+      external_api_url: process.env.QUEUE_EXTERNAL_API_URL,
+      concurrency     : process.env.QUEUE_CONCURRENCY ? parseInt(process.env.QUEUE_CONCURRENCY) : 1,
     },
 
     rate_limit: {

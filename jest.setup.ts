@@ -22,3 +22,5 @@ process.env.FRONTEND_VERIFY_PAGE_URL    = "http://localhost:3000/verify-email";
 process.env.FRONTEND_RESET_PAGE_URL         = "http://localhost:3000/reset-password";
 process.env.FRONTEND_SOCIAL_CALLBACK_URL    = "http://localhost:3000/auth/callback";
 process.env.CORS_ALLOWED_ORIGINS        = "http://localhost:3000";
+process.env.QUEUE_API_KEY               = "test-queue-api-key";
+process.env.QUEUE_EXTERNAL_API_URL      = "http://localhost:9999/webhook";
