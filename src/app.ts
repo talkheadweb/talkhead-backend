@@ -10,7 +10,6 @@ import passport from "passport";
 import globalErrorHandler from "@/Middlewares/Errors/globalErrorHandler";
 import notFoundHandler from "@/Middlewares/Errors/notFoundHandler";
 import { swaggerSpec } from "@/Config/swagger";
-import { ENodeEnv } from "@/Config/utils/config.types";
 import config from "@/Config";
 import cookieParser from "cookie-parser";
 import cors from "cors";
@@ -46,15 +45,12 @@ app.use(cors({
   credentials: true,
 }));
 
-// ── API documentation (dev only) ───────────────────────────────────────────
-// Swagger UI is disabled in production to avoid exposing internal API shape.
-// To re-enable in prod, add authentication in front of this route first.
-if (config.node_env !== ENodeEnv.PROD) {
-  app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
-    customSiteTitle: `${config.appName} API Docs`,
-    swaggerOptions  : { persistAuthorization: true },
-  }));
-}
+// ── API documentation ──────────────────────────────────────────────────────
+// Always available at /api/docs regardless of environment.
+app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+  customSiteTitle: `${config.appName} API Docs`,
+  swaggerOptions  : { persistAuthorization: true },
+}));
 
 // ── Application routes ─────────────────────────────────────────────────────
 app.use("/", configRoutes);
