@@ -1,20 +1,14 @@
 /*
   Social login controllers — one pair of handlers per OAuth provider.
 
-  Flow for every provider:
-    1. <provider>Auth     — redirects the browser to the provider's consent page.
-    2. <provider>Callback — provider redirects here; passport strategy resolves
-                            the identity; tokens are issued; a short-lived one-time
-                            auth code is stored in Redis; browser is redirected to:
-                              FRONTEND_SOCIAL_CALLBACK_URL?code=<uuid>
-                            On failure:
-                              FRONTEND_SOCIAL_CALLBACK_URL?error=<message>
+  Dynamic redirect origin:
+    The frontend passes its own origin as ?origin= when hitting the auth endpoint,
+    e.g. GET /api/v1/auth/social/google?origin=https://demo.talkhead.ai
+    The backend validates it against CORS_ALLOWED_ORIGINS, then encodes it in the
+    OAuth `state` parameter. Google returns the state unchanged in the callback, so
+    the backend knows exactly which frontend to redirect to — no hardcoded URL needed.
 
-  The frontend's /auth/callback route handler then calls POST /auth/social/claim
-  with the code. The backend returns both tokens in the response body so the
-  frontend can set them as httpOnly cookies on its own domain. This solves the
-  cross-domain cookie problem: cookies set by dev-api.talkhead.ai cannot be read
-  by localhost:3000, but tokens returned in a JSON body can be forwarded freely.
+    Fallback: if no ?origin= is supplied, FRONTEND_SOCIAL_CALLBACK_URL is used.
 
   Adding a new provider:
     1. Add strategy file  → social/strategies/<provider>.strategy.ts
@@ -42,11 +36,41 @@ import { TClaimSocialCodeBody } from "../types";
 const { set: refreshCookieOptions } = getRefreshTokenCookieOptions(config.auth.cookie);
 const { set: accessCookieOptions  } = getAccessTokenCookieOptions(config.auth.cookie);
 
-// ── Shared helper ──────────────────────────────────────────────────────────────
+// ── Shared helpers ─────────────────────────────────────────────────────────────
 
-const redirectToFrontend = (res: Response, result: { code?: string; error?: string }): void => {
-  const base = config.frontend.social_callback_url ?? config.frontend.verify_page_url;
-  const url  = new URL(base);
+/**
+ * Validates that `origin` is in the CORS_ALLOWED_ORIGINS whitelist.
+ * Returns the origin if valid, null otherwise.
+ */
+const validateOrigin = (origin: string | undefined): string | null => {
+  if (!origin) return null;
+  try {
+    const { origin: normalised } = new URL(origin); // strips trailing slash / path
+    return config.cors.allowed_origins.includes(normalised) ? normalised : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Builds the redirect URL back to the frontend callback page.
+ *
+ * `frontendOrigin` comes from the validated OAuth `state` parameter.
+ * Falls back to FRONTEND_SOCIAL_CALLBACK_URL for clients that didn't pass ?origin=.
+ */
+const buildCallbackUrl = (frontendOrigin: string | null): string => {
+  const base = frontendOrigin
+    ? `${frontendOrigin}/auth/callback`
+    : (config.frontend.social_callback_url ?? config.frontend.verify_page_url);
+  return base;
+};
+
+const redirectToFrontend = (
+  res: Response,
+  result: { code?: string; error?: string },
+  frontendOrigin: string | null,
+): void => {
+  const url = new URL(buildCallbackUrl(frontendOrigin));
   if (result.code)  url.searchParams.set("code",  result.code);
   if (result.error) url.searchParams.set("error", result.error);
   res.redirect(url.toString());
@@ -55,40 +79,45 @@ const redirectToFrontend = (res: Response, result: { code?: string; error?: stri
 // ── Google ─────────────────────────────────────────────────────────────────────
 
 /**
- * GET /api/v1/auth/social/google
+ * GET /api/v1/auth/social/google?origin=<frontend-origin>
+ *
  * Redirects the browser to Google's consent screen.
- * Returns 501 if GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are not configured.
+ * Validates and encodes the ?origin= param in the OAuth state so it can be
+ * recovered in the callback without any server-side storage.
  */
 const googleAuth = (req: Request, res: Response, next: NextFunction): void => {
   if (!config.google) {
     next(new CustomError("Google OAuth is not configured on this server.", 501));
     return;
   }
-  passport.authenticate("google", { scope: ["profile", "email"], session: false })(req, res, next);
+
+  const origin      = validateOrigin(req.query.origin as string | undefined);
+  // state = validated origin, or empty string (callback falls back to env var)
+  const state       = origin ?? "";
+
+  passport.authenticate("google", {
+    scope  : ["profile", "email"],
+    session: false,
+    state,
+  })(req, res, next);
 };
 
 /**
  * GET /api/v1/auth/social/google/callback
  *
- * Google redirects here after the user grants (or denies) access.
- *
- * What happens:
- *   1. Passport exchanges the ?code= for a Google profile.
- *   2. Strategy calls SocialAuthService.socialLogin → finds or creates the user.
- *   3. Access + refresh tokens are issued.
- *   4. Both tokens stored in Redis under a random UUID (2-min TTL, single-use).
- *   5. Browser redirected to: FRONTEND_SOCIAL_CALLBACK_URL?code=<uuid>
- *
- * The frontend then calls POST /auth/social/claim to exchange the code for
- * both tokens — which it sets as httpOnly cookies on its own domain.
+ * Google redirects here with ?state=<origin> (the value we passed in googleAuth).
+ * The state is re-validated so it can never be used as an open redirect.
  */
 const googleCallback = (req: Request, res: Response, next: NextFunction): void => {
+  // Re-validate: never trust state blindly even though we set it ourselves
+  const frontendOrigin = validateOrigin(req.query.state as string | undefined);
+
   passport.authenticate(
     "google",
     { session: false },
     async (err: Error | null, oauthUser: Express.User | false) => {
       if (err || !oauthUser) {
-        redirectToFrontend(res, { error: err?.message ?? "Google authentication failed." });
+        redirectToFrontend(res, { error: err?.message ?? "Google authentication failed." }, frontendOrigin);
         return;
       }
       try {
@@ -96,9 +125,9 @@ const googleCallback = (req: Request, res: Response, next: NextFunction): void =
           accessToken : oauthUser.accessToken!,
           refreshToken: oauthUser.refreshToken!,
         });
-        redirectToFrontend(res, { code });
+        redirectToFrontend(res, { code }, frontendOrigin);
       } catch {
-        redirectToFrontend(res, { error: "Failed to create auth session. Please try again." });
+        redirectToFrontend(res, { error: "Failed to create auth session. Please try again." }, frontendOrigin);
       }
     },
   )(req, res, next);
@@ -107,14 +136,9 @@ const googleCallback = (req: Request, res: Response, next: NextFunction): void =
 /**
  * POST /api/v1/auth/social/claim
  *
- * Exchanges a one-time auth code (issued by the OAuth callback) for both tokens.
- * The code is deleted from Redis immediately — replaying returns 401.
- *
- * Sets access_token + refresh_token as httpOnly cookies (same as POST /auth/login).
- * The Next.js route handler at /auth/callback forwards these Set-Cookie headers
- * in its own response so the browser stores them for localhost:3000, not for
- * dev-api.talkhead.ai. This works because Express does not set a Domain attribute
- * on the cookie — the browser always binds a domainless cookie to the response origin.
+ * Exchanges a one-time auth code for both tokens (sets httpOnly cookies).
+ * The Next.js route handler forwards these Set-Cookie headers so the browser
+ * stores them for the frontend domain, not dev-api.talkhead.ai.
  */
 const claimSocialCode = catchAsync(async (req: Request, res: Response) => {
   const { code } = req.body as TClaimSocialCodeBody;
@@ -129,10 +153,6 @@ const claimSocialCode = catchAsync(async (req: Request, res: Response) => {
     req,
   });
 });
-
-// ── Add more providers below ───────────────────────────────────────────────────
-// Each provider is just two functions: Auth (redirect) + Callback (handle result).
-// See social/routes.ts for the full checklist.
 
 export const SocialAuthController = {
   googleAuth,
