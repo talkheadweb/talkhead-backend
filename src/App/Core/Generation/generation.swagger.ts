@@ -17,11 +17,7 @@ import {
   str,
   withTag,
 } from "@/Config/swagger/helpers";
-import {
-  GenerationInputTypeValues,
-  GenerationOutputTypeValues,
-  GenerationStatusValues,
-} from "./const";
+import { GenerationInputTypeValues, GenerationStatusValues } from "./const";
 
 const { post, get, patch, del } = withTag("Generation");
 
@@ -29,35 +25,27 @@ const { post, get, patch, del } = withTag("Generation");
 const generationObject = {
   type      : "object",
   properties: {
-    _id             : str({ example: "664f1b2c3e4a5b6c7d8e9f00" }),
-    userId          : str({ example: "664f1b2c3e4a5b6c7d8e9f01" }),
-    bullJobId       : str({ example: "42" }),
-    status          : enumOf([...GenerationStatusValues]),
-    inputType       : enumOf([...GenerationInputTypeValues]),
-    outputType      : enumOf([...GenerationOutputTypeValues]),
-    inputText       : str({ example: "Generate a calming audio clip about nature." }),
-    referenceImageUrl: str({ example: "https://cdn.example.com/ref.jpg" }),
-    audioUrl        : str({ example: "https://cdn.example.com/out.mp3" }),
-    videoUrl        : str({ example: "https://cdn.example.com/out.mp4" }),
-    ysid            : str({ example: "ys_abc123" }),
-    errorMessage    : str({ example: "Processing failed due to timeout." }),
-    completedAt     : { type: "string", format: "date-time" },
-    createdAt       : { type: "string", format: "date-time" },
-    updatedAt       : { type: "string", format: "date-time" },
+    _id           : str({ example: "664f1b2c3e4a5b6c7d8e9f00" }),
+    userId        : str({ example: "664f1b2c3e4a5b6c7d8e9f01" }),
+    status        : enumOf([...GenerationStatusValues]),
+    inputType     : enumOf([...GenerationInputTypeValues]),
+    voiceId       : str({ example: "af_heart" }),
+    referenceImage: str({ example: "generations/images/uuid.jpg" }),
+    inputText     : str({ example: "Read this aloud in a calm voice." }),
+    inputAudio    : str({ example: "generations/audio/uuid.mp3" }),
+    outputUrl     : str({ example: "https://cdn.example.com/out.mp3" }),
+    errorMessage  : str({ example: "Processing failed due to timeout." }),
+    completedAt   : { type: "string", format: "date-time" },
+    createdAt     : { type: "string", format: "date-time" },
+    updatedAt     : { type: "string", format: "date-time" },
   },
 };
 
 // ── Shared list query parameters ───────────────────────────────────────────
 const generationListParams: object[] = [
-  // Search
-  queryParam("search", { type: "string" }, "Search by ysid or MongoDB _id"),
-
-  // Filters
-  queryParam("status",     enumOf([...GenerationStatusValues]),    "Filter by job status"),
-  queryParam("inputType",  enumOf([...GenerationInputTypeValues]), "Filter by input type"),
-  queryParam("outputType", enumOf([...GenerationOutputTypeValues]),"Filter by output type"),
-
-  // Pagination + sort
+  queryParam("status",    enumOf([...GenerationStatusValues]),    "Filter by job status"),
+  queryParam("inputType", enumOf([...GenerationInputTypeValues]), "Filter by input type"),
+  queryParam("userId",    { type: "string" },                     "Filter by user (admin only)"),
   ...paginationParams,
   ...sortParams,
 ];
@@ -68,18 +56,30 @@ export const generationPaths = {
     ...post({
       summary    : "Create a generation job",
       description:
-        "Creates a new generation record (status: pending) and immediately enqueues it in BullMQ. " +
-        "Returns the record including the BullMQ job ID for tracking.",
+        "Accepts multipart/form-data. referenceImage is required as either a file upload " +
+        "(JPEG/PNG ≤ 5 MB) or a URL in referenceImageUrl. " +
+        "When inputType is audio, inputAudio file (MP3/WAV/M4A ≤ 12 MB) is also required. " +
+        "Files are uploaded to R2 after the job is enqueued; the record is rolled back if enqueue fails.",
       secured  : true,
-      body     : jsonBody({
-        required: ["inputType", "outputType"],
-        props   : {
-          inputType        : enumOf([...GenerationInputTypeValues]),
-          outputType       : enumOf([...GenerationOutputTypeValues]),
-          inputText        : str({ max: 5000, example: "Describe the scene in calm tones." }),
-          referenceImageUrl: str({ example: "https://cdn.example.com/ref.jpg" }),
+      body     : {
+        required   : true,
+        content    : {
+          "multipart/form-data": {
+            schema: {
+              type      : "object",
+              required  : ["inputType", "voiceId"],
+              properties: {
+                inputType       : enumOf([...GenerationInputTypeValues]),
+                voiceId         : str({ example: "af_heart" }),
+                inputText       : str({ max: 5000, example: "Read this calmly." }),
+                referenceImageUrl: str({ example: "https://cdn.example.com/ref.jpg" }),
+                referenceImage  : { type: "string", format: "binary", description: "JPEG/PNG ≤ 5 MB" },
+                inputAudio      : { type: "string", format: "binary", description: "MP3/WAV/M4A ≤ 12 MB (required when inputType=audio)" },
+              },
+            },
+          },
         },
-      }),
+      },
       responses: {
         ...created("Generation job created.", generationObject),
         ...errors(400, 401),
@@ -88,12 +88,9 @@ export const generationPaths = {
 
     ...get({
       summary    : "List generation jobs",
-      description: [
-        "Returns a paginated list of generation records.",
-        "Authenticated users see only their own records. Admins see all records.",
-        "Supports full-text search by ysid, discrete filters, sorting, and pagination.",
-        "Admins may additionally filter by userId.",
-      ],
+      description:
+        "Authenticated users see only their own records. Admins see all. " +
+        "Supports discrete filters, sorting, and pagination.",
       secured    : true,
       parameters : generationListParams,
       responses  : {
@@ -116,15 +113,13 @@ export const generationPaths = {
 
     ...patch({
       summary    : "Update generation result (admin only)",
-      description: "Allows an admin (or the worker callback) to patch status, result URLs, ysid, or error message.",
+      description: "Admin patch for status, outputUrl, errorMessage, or completedAt.",
       secured    : true,
       body       : jsonBody({
         required: [],
         props   : {
           status      : enumOf([...GenerationStatusValues]),
-          audioUrl    : str({ example: "https://cdn.example.com/out.mp3" }),
-          videoUrl    : str({ example: "https://cdn.example.com/out.mp4" }),
-          ysid        : str({ example: "ys_abc123" }),
+          outputUrl   : str({ example: "https://cdn.example.com/out.mp3" }),
           errorMessage: str({ example: "Timeout error." }),
           completedAt : { type: "string", format: "date-time" },
         },
@@ -150,12 +145,35 @@ export const generationPaths = {
     ...patch({
       summary    : "Cancel a pending generation job",
       description:
-        "Removes the job from the BullMQ queue and sets status to cancelled. " +
+        "Removes the job from BullMQ and sets status to cancelled. " +
         "Only works while the job is still pending. Owner or admin can cancel.",
       secured  : true,
       responses: {
         ...ok("Generation cancelled.", generationObject),
         ...errors(401, 403, 404, 409),
+      },
+    }),
+  },
+
+  "/generations/{id}/callback": {
+    ...post({
+      summary    : "Kokoro callback — mark generation complete or failed",
+      description:
+        "Called by the Kokoro backend when processing finishes. " +
+        "Secured by x-api-key header (not a user JWT). " +
+        "success=true sets status to completed and stores outputUrl. " +
+        "success=false sets status to failed.",
+      secured  : false,
+      body     : jsonBody({
+        required: ["success"],
+        props   : {
+          success  : { type: "boolean", example: true },
+          outputUrl: str({ example: "https://cdn.example.com/result.mp3" }),
+        },
+      }),
+      responses: {
+        ...ok("Callback processed.", {}),
+        ...errors(400, 401, 403, 404),
       },
     }),
   },

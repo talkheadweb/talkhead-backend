@@ -316,6 +316,44 @@ export class R2BucketUtils {
 }
 
 
+/**
+ * Generate a pre-signed R2 key without uploading anything.
+ * Call this before creating the DB record so the key is ready,
+ * then upload the actual file after the job is enqueued.
+ */
+export const generateR2Key = (folder: string, originalName: string): string => {
+  const ext = path.extname(originalName).toLowerCase();
+  return `${folder}/${uuidv4()}${ext}`;
+};
+
+/**
+ * Upload a local temp file to R2 using a caller-supplied key.
+ * Deletes the temp file from disk after a successful upload.
+ */
+export const uploadFileToR2 = async (
+  filePath   : string,
+  fileKey    : string,
+  contentType: string,
+): Promise<void> => {
+  try {
+    const buffer = fs.readFileSync(filePath);
+    await r2Client.send(new PutObjectCommand({
+      Bucket     : r2Config.bucketName,
+      Key        : fileKey,
+      Body       : buffer,
+      ContentType: contentType,
+      Metadata   : { uploadedAt: new Date().toISOString() },
+    }));
+    fs.unlinkSync(filePath);
+  } catch (error) {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    throw new CustomError(
+      `Failed to upload file to R2: ${error instanceof Error ? error.message : "Unknown error"}`,
+      500,
+    );
+  }
+};
+
 // Download image from URL to temporary file
 const downloadImageFromUrl = async (imageUrl: string, fileName: string): Promise<string> => {
     return new Promise((resolve, reject) => {

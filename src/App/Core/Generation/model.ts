@@ -1,11 +1,5 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
-import {
-  GenerationStatus,
-  GenerationStatusValues,
-  GenerationInputType,
-  GenerationInputTypeValues,
-  GenerationOutputType,
-} from "./const";
+import { GenerationStatus, GenerationStatusValues, GenerationInputTypeValues } from "./const";
 import type { IGeneration } from "./types";
 
 export type TGenerationDocument = IGeneration & Document;
@@ -18,11 +12,6 @@ const GenerationSchema = new Schema<TGenerationDocument>(
       required: true,
       index   : true,
     },
-    bullJobId: {
-      type    : String,
-      required: true,
-      unique  : true,
-    },
     status: {
       type    : String,
       enum    : GenerationStatusValues,
@@ -32,29 +21,25 @@ const GenerationSchema = new Schema<TGenerationDocument>(
     },
     inputType: {
       type    : String,
-      enum    : Object.values(GenerationInputType),
+      enum    : GenerationInputTypeValues,
+      required: true,
+    },
+    voiceId: {
+      type    : String,
+      required: true,
+    },
+    referenceImage: {
+      type    : String,
       required: true,
     },
     inputText: {
       type: String,
     },
-    referenceImageUrl: {
+    inputAudio: {
       type: String,
     },
-    outputType: {
-      type    : String,
-      enum    : Object.values(GenerationOutputType),
-      required: true,
-    },
-    audioUrl: {
+    outputUrl: {
       type: String,
-    },
-    videoUrl: {
-      type: String,
-    },
-    ysid: {
-      type : String,
-      index: true,
     },
     errorMessage: {
       type: String,

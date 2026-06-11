@@ -112,6 +112,8 @@ export class BullWorker<T = unknown> {
  * Import bullQueue directly only if you need advanced BullMQ API (e.g. App/Queue service).
  */
 
+// jobId is set to recordId so BullMQ uses our own ID — enables lookup by _id without
+// storing the BullMQ-generated ID anywhere.
 const enqueue = (
   recordId: string,
   type    : TQueueJobType,
@@ -122,6 +124,7 @@ const enqueue = (
     recordId,
     { type, recordId, payload },
     {
+      jobId   : recordId,
       priority: options.priority,
       delay   : options.delay,
       attempts: options.attempts,

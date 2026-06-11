@@ -2,18 +2,37 @@ import { Router } from "express";
 import { EUserRole } from "@/App/Auth/types";
 import authenticate from "@/Middlewares/Auth";
 import AccessLimit from "@/Middlewares/AccessLimit";
+import apiKeyAuth from "@/Middlewares/ApiKey";
 import validateRequest from "@/Middlewares/validateRequest";
+import { generationUpload } from "@/Utils/file/config";
 import { GenerationController } from "./controller";
-import { createGenerationSchema, updateGenerationSchema } from "./validation";
+import {
+  createGenerationSchema,
+  updateGenerationSchema,
+  callbackGenerationSchema,
+} from "./validation";
 
 const generationRouter = Router();
 
-// All routes require a valid access token
+// ── Kokoro callback — no user auth, API key only ───────────────────────────
+// Registered before `authenticate` so it is not guarded by JWT.
+generationRouter.post(
+  "/:id/callback",
+  apiKeyAuth,
+  validateRequest(callbackGenerationSchema),
+  GenerationController.callback,
+);
+
+// ── All remaining routes require a valid access token ─────────────────────
 generationRouter.use(authenticate);
 
 // POST   /api/v1/generations        — create + enqueue (any authenticated user)
 generationRouter.post(
   "/",
+  generationUpload.fields([
+    { name: "referenceImage", maxCount: 1 },
+    { name: "inputAudio",     maxCount: 1 },
+  ]),
   validateRequest(createGenerationSchema),
   GenerationController.create,
 );

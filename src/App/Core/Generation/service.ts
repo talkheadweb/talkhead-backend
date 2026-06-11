@@ -6,40 +6,52 @@ import CustomError from "@/Utils/errors/customError.class";
 import { LogService } from "@/Config/logger/utils";
 import GenerationModel from "./model";
 import { GenerationStatus } from "./const";
-import type { IGeneration, TCreateGenerationBody, TListGenerationsPayload } from "./types";
+import type { IGeneration, TCallbackBody, TCreateGenerationBody, TListGenerationsPayload } from "./types";
 import { GenerationFilterKeys as FilterKeys, GenerationSearchKeys as SearchKeys } from "./types";
 
+type TFileKeys = {
+  refImageKey?: string;   // pre-generated R2 key for referenceImage file upload
+  audioKey?   : string;   // pre-generated R2 key for inputAudio file upload
+};
+
 // ── Create ─────────────────────────────────────────────────────────────────
-const create = async (userId: string, body: TCreateGenerationBody) => {
-  // 1. Create a placeholder record so we have a recordId for BullMQ
+// keys = pre-generated R2 keys from the controller (files not yet uploaded).
+// The controller uploads files to R2 AFTER this function returns successfully.
+// If enqueue fails the DB record is rolled back here — no file cleanup needed
+// because files are uploaded only after this returns.
+const create = async (userId: string, body: TCreateGenerationBody, keys: TFileKeys) => {
+  const referenceImage = keys.refImageKey ?? body.referenceImageUrl!;
+  const inputAudio     = keys.audioKey;
+
   const doc = await GenerationModel.create({
-    userId    : new Types.ObjectId(userId),
-    bullJobId : "pending",           // updated after job is queued
-    status    : GenerationStatus.PENDING,
-    inputType : body.inputType,
-    outputType: body.outputType,
-    inputText        : body.inputText,
-    referenceImageUrl: body.referenceImageUrl,
+    userId        : new Types.ObjectId(userId),
+    status        : GenerationStatus.PENDING,
+    inputType     : body.inputType,
+    voiceId       : body.voiceId,
+    referenceImage,
+    inputText     : body.inputText,
+    inputAudio,
   });
 
-  // 2. Enqueue — type is the typed discriminant, payload carries feature-specific data
-  const job = await QueueUtil.enqueue(
-    String(doc._id),
-    QueueJobType.GENERATION,
-    {
-      userId,
-      inputType        : body.inputType,
-      outputType       : body.outputType,
-      inputText        : body.inputText,
-      referenceImageUrl: body.referenceImageUrl,
-    },
-  );
+  try {
+    await QueueUtil.enqueue(
+      String(doc._id),
+      QueueJobType.GENERATION,
+      {
+        userId,
+        voiceId       : body.voiceId,
+        inputType     : body.inputType,
+        referenceImage,
+        inputText     : body.inputText,
+        inputAudio,
+      },
+    );
+  } catch (err) {
+    await GenerationModel.findByIdAndDelete(doc._id);
+    throw err;
+  }
 
-  // 3. Persist the real BullMQ job ID
-  doc.bullJobId = job.id as string;
-  await doc.save();
-
-  LogService.APPLICATION.info("Generation job queued", { recordId: doc._id, bullJobId: job.id });
+  LogService.APPLICATION.info("Generation job queued", { recordId: doc._id });
   return doc;
 };
 
@@ -101,7 +113,7 @@ const getOne = async (id: string, requestingUserId: string, isAdmin: boolean) =>
 // ── Update (admin patch) ───────────────────────────────────────────────────
 const update = async (
   id  : string,
-  data: Partial<Pick<IGeneration, "status" | "audioUrl" | "videoUrl" | "ysid" | "errorMessage" | "completedAt">>,
+  data: Partial<Pick<IGeneration, "status" | "outputUrl" | "errorMessage" | "completedAt">>,
 ) => {
   const doc = await GenerationModel.findByIdAndUpdate(
     id,
@@ -125,7 +137,7 @@ const cancel = async (id: string, requestingUserId: string, isAdmin: boolean) =>
     throw new CustomError(`Cannot cancel a job that is already ${doc.status}.`, 409);
   }
 
-  await QueueUtil.remove(doc.bullJobId);
+  await QueueUtil.remove(String(doc._id));
 
   doc.status = GenerationStatus.CANCELLED;
   await doc.save();
@@ -150,20 +162,12 @@ const markProcessing = async (recordId: string): Promise<void> => {
   });
 };
 
-type TJobResult = {
-  audioUrl?: string;
-  videoUrl?: string;
-  ysid?    : string;
-};
-
-const markCompleted = async (recordId: string, result: TJobResult = {}): Promise<void> => {
+const markCompleted = async (recordId: string, outputUrl?: string): Promise<void> => {
   await GenerationModel.findByIdAndUpdate(recordId, {
     $set: {
       status     : GenerationStatus.COMPLETED,
       completedAt: new Date(),
-      ...(result.audioUrl ? { audioUrl: result.audioUrl } : {}),
-      ...(result.videoUrl ? { videoUrl: result.videoUrl } : {}),
-      ...(result.ysid     ? { ysid    : result.ysid     } : {}),
+      ...(outputUrl ? { outputUrl } : {}),
     },
   });
 };
@@ -174,6 +178,20 @@ const markFailed = async (recordId: string, errorMessage: string): Promise<void>
   });
 };
 
+// ── Kokoro callback — called by the external Kokoro backend ────────────────
+const handleCallback = async (id: string, body: TCallbackBody): Promise<void> => {
+  const doc = await GenerationModel.findById(id).lean();
+  if (!doc) throw new CustomError("Generation record not found.", 404);
+
+  if (body.success) {
+    await markCompleted(id, body.outputUrl);
+    LogService.APPLICATION.info("Generation completed via callback", { recordId: id });
+  } else {
+    await markFailed(id, "Kokoro processing did not succeed.");
+    LogService.APPLICATION.warn("Generation failed via callback", { recordId: id });
+  }
+};
+
 export const GenerationService = {
   create,
   list,
@@ -181,7 +199,8 @@ export const GenerationService = {
   update,
   cancel,
   remove,
-  // Worker callbacks — not for HTTP controllers
+  handleCallback,
+  // Worker callbacks — called exclusively by the queue processor
   markProcessing,
   markCompleted,
   markFailed,

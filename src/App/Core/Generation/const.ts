@@ -26,21 +26,10 @@ export const GenerationStatusValues = Object.values(GenerationStatus) as [TGener
 export const GenerationInputType = {
   TEXT : "text",
   AUDIO: "audio",
-  IMAGE: "image",
-  VIDEO: "video",
 } as const;
 
 export type TGenerationInputType = typeof GenerationInputType[keyof typeof GenerationInputType];
 export const GenerationInputTypeValues = Object.values(GenerationInputType) as [TGenerationInputType, ...TGenerationInputType[]];
-
-// ── Output type ────────────────────────────────────────────────────────────
-export const GenerationOutputType = {
-  AUDIO: "audio",
-  VIDEO: "video",
-} as const;
-
-export type TGenerationOutputType = typeof GenerationOutputType[keyof typeof GenerationOutputType];
-export const GenerationOutputTypeValues = Object.values(GenerationOutputType) as [TGenerationOutputType, ...TGenerationOutputType[]];
 
 // ── Redis / cache prefixes (if needed in future) ───────────────────────────
 export const GENERATION_CACHE_PREFIX = "generation" as const;

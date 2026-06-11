@@ -19,11 +19,12 @@ const log = LogService.APPLICATION;
 export const handleGenerationJob = async (job: Job<TQueueJobData>): Promise<void> => {
   const { recordId, payload } = job.data;
 
-  // 1. Delegate status update to the module's own service — no DB here
+  // 1. Mark as processing
   await GenerationService.markProcessing(recordId);
   log.info("Generation job processing", { recordId, jobId: job.id });
 
-  // 2. Call the external AI service
+  // 2. Send to the Kokoro external service to begin async processing.
+  //    Kokoro will call POST /api/v1/generations/:id/callback when done.
   const response = await fetch(config.queue.external_api_url, {
     method : "POST",
     headers: {
@@ -35,21 +36,10 @@ export const handleGenerationJob = async (job: Job<TQueueJobData>): Promise<void
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "unknown error");
-    // Delegate failure update to the module's own service — no DB here
     await GenerationService.markFailed(recordId, `External API ${response.status}: ${errorText}`);
-    // Throw so BullMQ retries (up to 3× with exponential backoff)
     throw new Error(`External API responded with ${response.status}: ${errorText}`);
   }
 
-  // 3. Parse result — external service may return URLs in the response body
-  const body = await response.json().catch(() => null) as Record<string, unknown> | null;
-
-  // Delegate completion update to the module's own service — no DB here
-  await GenerationService.markCompleted(recordId, {
-    audioUrl: body?.audioUrl as string | undefined,
-    videoUrl: body?.videoUrl as string | undefined,
-    ysid    : body?.ysid     as string | undefined,
-  });
-
-  log.info("Generation job completed", { recordId, jobId: job.id });
+  // Kokoro accepted the job — completion/failure arrives via the callback webhook.
+  log.info("Generation job sent to Kokoro, awaiting callback", { recordId, jobId: job.id });
 };

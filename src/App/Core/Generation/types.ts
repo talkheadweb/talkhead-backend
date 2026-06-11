@@ -1,40 +1,39 @@
 import { Types } from "mongoose";
 import { IQueryItems } from "@/Utils/types/query.type";
-import {
-  TGenerationInputType,
-  TGenerationOutputType,
-  TGenerationStatus,
-} from "./const";
+import { TGenerationInputType, TGenerationStatus } from "./const";
 
 // ── MongoDB document interface ─────────────────────────────────────────────
 export interface IGeneration {
-  userId          : Types.ObjectId;
-  bullJobId       : string;              // BullMQ job ID — for queue state lookup
-  status          : TGenerationStatus;
-  inputType       : TGenerationInputType;
-  inputText      ?: string;             // text prompt (when inputType = text)
-  referenceImageUrl?: string;           // input reference image URL
-  outputType      : TGenerationOutputType;
-  audioUrl       ?: string;             // generated audio output URL
-  videoUrl       ?: string;             // generated video output URL
-  ysid           ?: string;             // external service session ID
-  errorMessage   ?: string;            // error detail if status = failed
-  completedAt    ?: Date;
-  createdAt       : Date;
-  updatedAt       : Date;
+  userId         : Types.ObjectId;
+  status         : TGenerationStatus;
+  inputType      : TGenerationInputType;
+  voiceId        : string;             // Kokoro voice ID (always required)
+  referenceImage : string;             // R2 file key or external https:// URL
+  inputText     ?: string;             // required when inputType = text
+  inputAudio    ?: string;             // R2 file key, required when inputType = audio
+  outputUrl     ?: string;             // set by Kokoro callback on success
+  errorMessage  ?: string;            // set on failure
+  completedAt   ?: Date;
+  createdAt      : Date;
+  updatedAt      : Date;
 }
 
 // ── Search / filter keys ───────────────────────────────────────────────────
-export const GenerationSearchKeys:      (keyof IGeneration)[] = ["ysid"];
-export const GenerationFilterKeys:      (keyof IGeneration)[] = ["status", "inputType", "outputType"];
+export const GenerationSearchKeys:      (keyof IGeneration)[] = [];
+export const GenerationFilterKeys:      (keyof IGeneration)[] = ["status", "inputType"];
 export const GenerationExtraFilterKeys: string[]              = ["userId"];
 
 // ── Request DTOs ───────────────────────────────────────────────────────────
 export type TCreateGenerationBody = {
   inputType        : TGenerationInputType;
-  outputType       : TGenerationOutputType;
+  voiceId          : string;
   inputText?       : string;
-  referenceImageUrl?: string;
+  referenceImageUrl?: string;           // present when referenceImage is passed as URL (no file)
+};
+
+export type TCallbackBody = {
+  success  : boolean;
+  outputUrl?: string;
 };
 
 export type TListGenerationsPayload = IQueryItems<Partial<IGeneration>>;

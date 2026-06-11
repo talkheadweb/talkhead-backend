@@ -3,12 +3,61 @@ import { EUserRole } from "@/App/Auth/types";
 import catchAsync from "@/Utils/helper/catchAsync";
 import { sendResponse } from "@/Utils/helper/sendResponse";
 import { queryOptimization } from "@/Utils/helper/queryOptimize";
+import CustomError from "@/Utils/errors/customError.class";
+import { generateR2Key, uploadFileToR2 } from "@/Utils/file/upload";
 import { GenerationService } from "./service";
 import { GenerationFilterKeys, GenerationExtraFilterKeys, IGeneration } from "./types";
 
+const IMAGE_SIZE_LIMIT = 5 * 1024 * 1024; // 5 MB
+
 // ── Create ─────────────────────────────────────────────────────────────────
 const create = catchAsync(async (req: Request, res: Response) => {
-  const result = await GenerationService.create(req.user!.uid, req.body);
+  const files       = req.files as Record<string, Express.Multer.File[]> | undefined;
+  const refImageFile = files?.["referenceImage"]?.[0];
+  const audioFile    = files?.["inputAudio"]?.[0];
+
+  // Validate referenceImage — must be either a file upload or a URL in the body
+  if (!refImageFile && !req.body.referenceImageUrl) {
+    throw new CustomError(
+      "referenceImage is required: upload a file or provide referenceImageUrl.",
+      400,
+    );
+  }
+
+  // Enforce 5 MB cap on the reference image (multer limit is 12 MB for audio)
+  if (refImageFile && refImageFile.size > IMAGE_SIZE_LIMIT) {
+    throw new CustomError("referenceImage must not exceed 5 MB.", 400);
+  }
+
+  // Validate audio presence when inputType = audio
+  if (req.body.inputType === "audio" && !audioFile) {
+    throw new CustomError("inputAudio file is required when inputType is audio.", 400);
+  }
+
+  // Generate R2 keys now (no upload yet — files are uploaded after enqueue)
+  const refImageKey = refImageFile
+    ? generateR2Key("generations/images", refImageFile.originalname)
+    : undefined;
+  const audioKey = audioFile
+    ? generateR2Key("generations/audio", audioFile.originalname)
+    : undefined;
+
+  // Create DB record + enqueue; if enqueue fails the record is rolled back
+  const result = await GenerationService.create(req.user!.uid, req.body, {
+    refImageKey,
+    audioKey,
+  });
+
+  // Upload files to R2 only after successful enqueue
+  const uploads: Promise<void>[] = [];
+  if (refImageFile && refImageKey) {
+    uploads.push(uploadFileToR2(refImageFile.path, refImageKey, refImageFile.mimetype));
+  }
+  if (audioFile && audioKey) {
+    uploads.push(uploadFileToR2(audioFile.path, audioKey, audioFile.mimetype));
+  }
+  await Promise.all(uploads);
+
   sendResponse.success(res, { statusCode: 201, message: "Generation job created.", data: result, req });
 });
 
@@ -52,4 +101,10 @@ const remove = catchAsync(async (req: Request, res: Response) => {
   sendResponse.success(res, { statusCode: 200, message: "Generation deleted.", data: result, req });
 });
 
-export const GenerationController = { create, list, getOne, update, cancel, remove };
+// ── Kokoro callback — POST /:id/callback (x-api-key protected) ────────────
+const callback = catchAsync(async (req: Request, res: Response) => {
+  await GenerationService.handleCallback(req.params["id"] as string, req.body);
+  sendResponse.success(res, { statusCode: 200, message: "Callback processed.", data: null, req });
+});
+
+export const GenerationController = { create, list, getOne, update, cancel, remove, callback };

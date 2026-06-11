@@ -3,7 +3,7 @@ import fs from "fs";
 import multer from "multer";
 import path from "path";
 import { v4 as uuidv4 } from 'uuid';
-import { allowedMimes } from "./type";
+import { allowedMimes, allowedGenerationImageMimes, allowedGenerationAudioMimes } from "./type";
 import CustomError from '../errors/customError.class';
 
 // Create the temp-uploads directory once at module load time, not on each request.
@@ -37,4 +37,24 @@ export const upload = multer({
     limits: {
         fileSize: 2 * 1024 * 1024,
     }
+});
+
+// ── Generation upload — referenceImage (image) + inputAudio (audio) ────────
+// Global limit is 12 MB (audio max); image size (5 MB) is checked in the controller.
+const generationFileFilter = (_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+    if (file.fieldname === 'referenceImage') {
+        if (allowedGenerationImageMimes.includes(file.mimetype)) cb(null, true);
+        else cb(new CustomError('referenceImage must be a JPEG or PNG file', 400));
+    } else if (file.fieldname === 'inputAudio') {
+        if (allowedGenerationAudioMimes.includes(file.mimetype)) cb(null, true);
+        else cb(new CustomError('inputAudio must be an MP3, WAV, or M4A file', 400));
+    } else {
+        cb(new CustomError(`Unexpected file field: ${file.fieldname}`, 400));
+    }
+};
+
+export const generationUpload = multer({
+    storage,
+    fileFilter: generationFileFilter,
+    limits: { fileSize: 12 * 1024 * 1024 },
 });
