@@ -4,7 +4,7 @@ import CustomError from "@/Utils/errors/customError.class";
 import { HashHelper } from "@/Utils/helper/hashHelper";
 import { JwtHelper } from "@/Utils/helper/jwtHelper";
 import { MailUtils } from "@/Utils/mail/resend";
-import { deleteFromR2, uploadProfileImageToR2 } from "@/Utils/file/upload";
+import { deleteFromR2, getPresignedUrl, uploadProfileImageToR2 } from "@/Utils/file/upload";
 import { v4 as uuidv4 } from "uuid";
 import UserModel from "./model";
 import { AuthRedisService } from "./redisService";
@@ -262,6 +262,25 @@ const resendVerificationEmail = async (email: string): Promise<void> => {
   log.info("Verification email resent", { userId: user._id });
 };
 
+// ── Profile picture URL resolution ────────────────────────────────────────
+/**
+ * Resolves the stored profilePicture value to a displayable URL.
+ *
+ * If a customDomain is configured the stored value is already a full HTTPS URL.
+ * Without a customDomain the stored value is a bare R2 object key — generate a
+ * short-lived presigned URL so the client can display it.
+ */
+const resolveProfilePictureUrl = async (raw: string | null | undefined): Promise<string | null> => {
+  if (!raw) return null;
+  if (raw.startsWith("http")) return raw;      // already a full URL (custom domain case)
+  try {
+    return await getPresignedUrl(raw, 3600);   // 1-hour presigned URL
+  } catch {
+    log.warn("Could not generate presigned URL for profile picture", { key: raw });
+    return null;
+  }
+};
+
 // ── Get current user ───────────────────────────────────────────────────────
 /**
  * Returns the profile of the authenticated user.
@@ -270,7 +289,9 @@ const resendVerificationEmail = async (email: string): Promise<void> => {
 const getMe = async (userId: string): Promise<TUserPublic> => {
   const user = await UserModel.findById(userId);
   if (!user) throw new CustomError("User not found.", 404);
-  return toPublicUser(user);
+  const publicUser = toPublicUser(user);
+  publicUser.profilePicture = await resolveProfilePictureUrl(user.profilePicture);
+  return publicUser;
 };
 
 // ── Update profile ─────────────────────────────────────────────────────────
@@ -322,7 +343,9 @@ const updateProfile = async (
   if (!user) throw new CustomError("User not found.", 404);
 
   log.info("Profile updated", { userId, fields: Object.keys(updates) });
-  return toPublicUser(user);
+  const publicUser = toPublicUser(user);
+  publicUser.profilePicture = await resolveProfilePictureUrl(user.profilePicture);
+  return publicUser;
 };
 
 // ── Change password ────────────────────────────────────────────────────────
