@@ -4,18 +4,19 @@ import { TGenerationInputType, TGenerationStatus } from "./const";
 
 // ── MongoDB document interface ─────────────────────────────────────────────
 export interface IGeneration {
-  userId         : Types.ObjectId;
-  status         : TGenerationStatus;
-  inputType      : TGenerationInputType;
-  voiceId        : string;             // Kokoro voice ID (always required)
-  referenceImage : string;             // R2 file key or external https:// URL
-  inputText     ?: string;             // required when inputType = text
-  inputAudio    ?: string;             // R2 file key, required when inputType = audio
-  outputUrl     ?: string;             // set by Kokoro callback on success
-  errorMessage  ?: string;            // set on failure
-  completedAt   ?: Date;
-  createdAt      : Date;
-  updatedAt      : Date;
+  userId        : Types.ObjectId;
+  queueJobId?   : Types.ObjectId;      // ref → QueueJob._id (set after enqueue)
+  status        : TGenerationStatus;
+  inputType     : TGenerationInputType;
+  voiceId       : string;              // Kokoro voice ID (always required)
+  referenceImage: string;              // R2 file key or external https:// URL
+  inputText?    : string;              // required when inputType = text
+  inputAudio?   : string;              // R2 file key, required when inputType = audio
+  outputUrl?    : string;              // set by Kokoro callback on success
+  errorMessage? : string;              // set on failure
+  completedAt?  : Date;
+  createdAt     : Date;
+  updatedAt     : Date;
 }
 
 // ── Search / filter keys ───────────────────────────────────────────────────

@@ -10,7 +10,7 @@ queueRouter.use(apiKeyAuth);
 
 queueRouter.post  ("/",         validateRequest(createQueueJobSchema), QueueController.create);
 queueRouter.get   ("/",                                                 QueueController.list);
-queueRouter.get   ("/:jobId",                                           QueueController.getOne);
-queueRouter.delete("/:jobId",                                           QueueController.cancel);
+queueRouter.get   ("/:id",                                              QueueController.getOne);
+queueRouter.delete("/:id",                                              QueueController.cancel);
 
 export default queueRouter;

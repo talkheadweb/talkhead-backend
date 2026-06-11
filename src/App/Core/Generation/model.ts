@@ -12,6 +12,10 @@ const GenerationSchema = new Schema<TGenerationDocument>(
       required: true,
       index   : true,
     },
+    queueJobId: {
+      type: Schema.Types.ObjectId,
+      ref : "QueueJob",     // populated on demand — not required (set after enqueue)
+    },
     status: {
       type    : String,
       enum    : GenerationStatusValues,

@@ -31,15 +31,15 @@ const list = catchAsync(async (req: Request, res: Response) => {
   sendResponse.success(res, { statusCode: 200, message: "Queue jobs fetched.", ...result, req });
 });
 
-/** GET /api/v1/queue/:jobId */
+/** GET /api/v1/queue/:id */
 const getOne = catchAsync(async (req: Request, res: Response) => {
-  const job = await QueueService.getByBullJobId(req.params["jobId"] as string);
+  const job = await QueueService.getById(req.params["id"] as string);
   sendResponse.success(res, { statusCode: 200, message: "Queue job fetched.", data: job, req });
 });
 
-/** DELETE /api/v1/queue/:jobId */
+/** DELETE /api/v1/queue/:id */
 const cancel = catchAsync(async (req: Request, res: Response) => {
-  const job = await QueueService.cancel(req.params["jobId"] as string);
+  const job = await QueueService.cancel(req.params["id"] as string);
   sendResponse.success(res, { statusCode: 200, message: "Queue job cancelled.", data: job, req });
 });
 

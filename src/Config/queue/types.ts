@@ -5,7 +5,8 @@
  */
 
 import { Job } from "bullmq";
-import type { TQueueJobType } from "./const";
+import { Types } from "mongoose";
+import type { TQueueJobStatus, TQueueJobType } from "./const";
 
 /**
  * Canonical BullMQ job data shape.
@@ -33,3 +34,22 @@ export type TEnqueueOptions = {
 
 /** Function signature expected by BullMQ Worker + BullWorker class */
 export type TProcessor<T = unknown> = (job: Job<T>) => Promise<void>;
+
+// ── Persistent queue job (MongoDB) ─────────────────────────────────────────
+export interface IQueueJob {
+  recordId     : string;                    // feature document _id
+  type         : TQueueJobType;
+  payload      : Record<string, unknown>;
+  status       : TQueueJobStatus;
+  bullJobId?   : string;                    // BullMQ cache ID — informational only
+  attempts     : number;
+  failedReason?: string;
+  startedAt?   : Date;
+  finishedAt?  : Date;
+  createdAt    : Date;
+  updatedAt    : Date;
+}
+
+export type TEnqueueResult = {
+  queueJobId: Types.ObjectId;   // MongoDB _id of the QueueJob document
+};

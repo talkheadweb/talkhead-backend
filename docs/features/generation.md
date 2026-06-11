@@ -1,6 +1,6 @@
 # Generation Module
 
-Manages AI generation jobs (audio / video). A user submits a request, the server creates a MongoDB record, enqueues a BullMQ job, and the worker calls the external AI service. The record is updated throughout the lifecycle.
+Manages AI generation jobs powered by the Kokoro TTS engine. A user submits a request with a voice ID, reference image, and either text or audio input. The server creates a MongoDB record, enqueues a BullMQ job (also persisted in `QueueJob`), and the worker forwards the job to the Kokoro backend. Kokoro processes asynchronously and calls back to mark the job complete or failed.
 
 ---
 
@@ -14,6 +14,7 @@ Manages AI generation jobs (audio / video). A user submits a request, the server
 | `PATCH` | `/api/v1/generations/:id` | Update status / result fields | Bearer token (admin only) |
 | `PATCH` | `/api/v1/generations/:id/cancel` | Cancel a pending job | Bearer token (owner or admin) |
 | `DELETE` | `/api/v1/generations/:id` | Hard delete a record | Bearer token (admin only) |
+| `POST` | `/api/v1/generations/:id/callback` | Kokoro callback — mark complete or failed | `x-api-key` header (no JWT) |
 
 ---
 
@@ -21,14 +22,28 @@ Manages AI generation jobs (audio / video). A user submits a request, the server
 
 **POST** `/api/v1/generations`
 
-### Request Body
+**Content-Type:** `multipart/form-data`
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `inputType` | `"text" \| "audio" \| "image" \| "video"` | ✅ | Type of input provided |
-| `outputType` | `"audio" \| "video"` | ✅ | Desired output format |
-| `inputText` | `string` (max 5000) | ❌ | Text prompt (when inputType = text) |
-| `referenceImageUrl` | `string` (URL) | ❌ | URL to reference image for generation |
+### Form Fields
+
+| Field | Type | Required | Rules |
+|-------|------|----------|-------|
+| `inputType` | `"text" \| "audio"` | ✅ | Determines which input field is used |
+| `voiceId` | `string` | ✅ | Kokoro voice ID (e.g. `af_heart`) |
+| `inputText` | `string` (max 5000) | Required if `inputType=text` | Text to synthesise |
+| `referenceImageUrl` | `string` (URL) | Required if no `referenceImage` file | Reference image as URL |
+| `referenceImage` | file | Required if no `referenceImageUrl` | JPEG/PNG, max **5 MB** |
+| `inputAudio` | file | Required if `inputType=audio` | MP3/WAV/M4A, max **12 MB** |
+
+**Exactly one of** `referenceImageUrl` **or** `referenceImage` **must be provided.**
+When `inputType=audio`, `inputAudio` file is required; `inputText` is ignored.
+
+### Upload flow
+
+1. Controller generates R2 file keys (UUID paths) — no upload yet
+2. MongoDB record created + BullMQ job enqueued + `QueueJob` record created
+3. Files uploaded to R2 **after** enqueue succeeds
+4. If enqueue fails → DB record rolled back; no files were uploaded (zero cleanup cost)
 
 ### Response (201)
 
@@ -39,13 +54,14 @@ Manages AI generation jobs (audio / video). A user submits a request, the server
   "data": {
     "_id": "664f1b2c3e4a5b6c7d8e9f00",
     "userId": "664f1b2c3e4a5b6c7d8e9f01",
-    "bullJobId": "42",
+    "queueJobId": "664f1b2c3e4a5b6c7d8e9f02",
     "status": "pending",
     "inputType": "text",
-    "outputType": "audio",
-    "inputText": "Generate a calming audio about nature.",
-    "createdAt": "2026-06-09T10:00:00.000Z",
-    "updatedAt": "2026-06-09T10:00:00.000Z"
+    "voiceId": "af_heart",
+    "referenceImage": "generations/images/uuid.jpg",
+    "inputText": "Say this calmly.",
+    "createdAt": "2026-06-12T10:00:00.000Z",
+    "updatedAt": "2026-06-12T10:00:00.000Z"
   }
 }
 ```
@@ -54,7 +70,7 @@ Manages AI generation jobs (audio / video). A user submits a request, the server
 
 | Code | Reason |
 |------|--------|
-| 400 | Validation failure (missing required fields, invalid enum value) |
+| 400 | Missing `referenceImage` / `referenceImageUrl`, missing `voiceId`, missing `inputText` when `inputType=text`, missing `inputAudio` when `inputType=audio`, invalid enum |
 | 401 | No / invalid token |
 
 ---
@@ -67,17 +83,15 @@ Manages AI generation jobs (audio / video). A user submits a request, the server
 
 | Param | Description |
 |-------|-------------|
-| `search` | Partial match on `ysid` or MongoDB `_id` |
 | `status` | Filter by status — `pending`, `processing`, `completed`, `failed`, `cancelled` |
-| `inputType` | Filter by input type — `text`, `audio`, `image`, `video` |
-| `outputType` | Filter by output type — `audio`, `video` |
+| `inputType` | Filter by input type — `text`, `audio` |
 | `userId` | Filter by owner userId (admin only; ignored for non-admins) |
 | `page` | Page number (default 1) |
-| `limit` | Items per page (default 10, max 100) |
+| `limit` | Items per page (default 10) |
 | `sortBy` | Field to sort by (default `createdAt`) |
 | `sortOrder` | `asc` or `desc` (default `desc`) |
 
-**Note:** Non-admin users always see only their own records regardless of `userId` filter.
+Non-admin users always see only their own records regardless of `userId` filter.
 
 ---
 
@@ -93,14 +107,10 @@ Returns 403 if the requesting user is not the owner and not an admin.
 
 **PATCH** `/api/v1/generations/:id`
 
-Allows an admin or the BullMQ worker callback to update result fields.
-
 | Field | Type | Description |
 |-------|------|-------------|
 | `status` | `TGenerationStatus` | New status |
-| `audioUrl` | `string` (URL) | Generated audio result |
-| `videoUrl` | `string` (URL) | Generated video result |
-| `ysid` | `string` | External service session ID |
+| `outputUrl` | `string` (URL) | Result output URL |
 | `errorMessage` | `string` | Error detail (set when failed) |
 | `completedAt` | `Date` | Completion timestamp |
 
@@ -111,7 +121,7 @@ Allows an admin or the BullMQ worker callback to update result fields.
 **PATCH** `/api/v1/generations/:id/cancel`
 
 - Only works while `status === "pending"` (job not yet picked up by worker)
-- Removes the job from the BullMQ queue and sets `status = "cancelled"`
+- Removes the job from BullMQ and sets `status = "cancelled"`
 - Returns 409 if job is already in any non-pending state
 
 ---
@@ -120,33 +130,89 @@ Allows an admin or the BullMQ worker callback to update result fields.
 
 **DELETE** `/api/v1/generations/:id`
 
-Hard-deletes the MongoDB record. Does not attempt to remove from BullMQ (job may already be processed).
+Hard-deletes the MongoDB record. Does not attempt R2 file cleanup.
+
+---
+
+## Kokoro Callback
+
+**POST** `/api/v1/generations/:id/callback`
+
+Called by the Kokoro backend when async processing finishes. **No JWT required** — secured by `x-api-key` header.
+
+### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `success` | `boolean` | ✅ | `true` → completed, `false` → failed |
+| `outputUrl` | `string` (URL) | ❌ | Generated result URL (set when `success=true`) |
+
+### Errors
+
+| Code | Reason |
+|------|--------|
+| 400 | Missing `success` field, `outputUrl` not a valid URL |
+| 401 | Missing API key |
+| 403 | Wrong API key |
+| 404 | Generation record not found |
 
 ---
 
 ## Business Rules
 
-1. **Status flow:** `pending` → `processing` → `completed` | `failed`; can be `cancelled` from `pending` only
-2. **Ownership:** users only see and cancel their own jobs; admins have full access
-3. **Queue integration:** every create immediately enqueues a BullMQ job; the worker calls the external AI service
-4. **Worker updates record:** on success the worker sets `status = completed` + result URLs; on failure sets `status = failed` + `errorMessage`
-5. **Retry policy:** BullMQ retries failed external API calls 3× with exponential backoff (2 s, 4 s, 8 s)
-6. **Constants:** all status/type values come from `const.ts` — never use raw strings
-7. **Role guards:** `EUserRole.ADMIN` enum used throughout — never raw `"admin"` strings
+1. **Status flow:** `pending` → `processing` → `completed` | `failed`; cancellable from `pending` only
+2. **Ownership:** users see and cancel only their own jobs; admins have full access
+3. **File rules:** `referenceImage` always required (file or URL); `inputAudio` required only when `inputType=audio`
+4. **voiceId always required:** every generation needs a Kokoro voice — no default
+5. **Async completion:** the worker sends the job to Kokoro and stops — completion arrives via callback webhook, not from the worker
+6. **Queue persistence:** every enqueued job is also stored in the `QueueJob` MongoDB collection via `QueueUtil.enqueue` — durable even if Redis is flushed
+7. **Retry policy:** BullMQ retries a failed external API call 3× with exponential backoff (2 s, 4 s, 8 s)
+8. **Constants:** all status/type values come from `const.ts` — never use raw strings
 
 ---
 
 ## Worker Callback Methods
 
-The queue processor (`Config/queue/processors/generation.processor.ts`) does **not** touch the database directly. It calls these service methods instead:
+The queue processor (`Config/queue/processors/generation.processor.ts`) never touches the database directly. It delegates to:
 
 | Method | When called | What it does |
 |--------|-------------|--------------|
-| `GenerationService.markProcessing(recordId)` | Job picked up by worker | `status → PROCESSING` |
-| `GenerationService.markCompleted(recordId, result)` | External API success | `status → COMPLETED` + saves `audioUrl`, `videoUrl`, `ysid`, `completedAt` |
-| `GenerationService.markFailed(recordId, errorMessage)` | External API failure | `status → FAILED` + saves `errorMessage` |
+| `GenerationService.markProcessing(recordId)` | Worker picks up job | `status → PROCESSING` |
+| `GenerationService.markFailed(recordId, msg)` | Kokoro API call fails | `status → FAILED` + `errorMessage` |
+| `GenerationService.markCompleted(id, url?)` | Kokoro calls `/callback` with `success=true` | `status → COMPLETED` + `outputUrl` + `completedAt` |
 
-This keeps all DB logic inside the module. The processor is pure orchestration.
+---
+
+## Full Job Lifecycle
+
+```
+User → POST /generations (multipart)
+  ↓
+Controller:
+  generate R2 keys (no upload yet)
+  ↓
+GenerationService.create()
+  ├─ GenerationModel.create({ status: PENDING, referenceImage, voiceId, ... })
+  ├─ QueueUtil.enqueue(recordId, QueueJobType.GENERATION, payload)
+  │    ├─ QueueJobModel.create({ recordId, type, payload, status: PENDING })   ← MongoDB
+  │    └─ bullQueue.add(recordId, data, { jobId: recordId })                  ← Redis/BullMQ
+  └─ GenerationModel.findByIdAndUpdate(doc._id, { queueJobId })
+  ↓
+Controller uploads files to R2 (after successful enqueue)
+
+BullMQ Worker (bootstrap.ts):
+  handleGenerationJob(job)
+  ├─ GenerationService.markProcessing(recordId)   → status = PROCESSING
+  └─ POST to Kokoro external API { recordId, payload }
+       Kokoro accepted → done (awaiting callback)
+       Kokoro error → markFailed + throw → BullMQ retries (up to 3×)
+
+Kokoro backend → POST /api/v1/generations/:id/callback
+  { success: true, outputUrl: "..." }
+  → GenerationService.handleCallback()
+       success → markCompleted → status = COMPLETED + outputUrl
+       failure → markFailed   → status = FAILED
+```
 
 ---
 
@@ -154,52 +220,30 @@ This keeps all DB logic inside the module. The processor is pure orchestration.
 
 ```
 src/App/Core/Generation/
-  const.ts              ← All constant values (GenerationStatus, GenerationInputType,
-                           GenerationOutputType, GenerationInputTypeValues,
-                           GenerationOutputTypeValues, GenerationStatusValues,
-                           GENERATION_CACHE_PREFIX)
-  types.ts              ← IGeneration interface, DTOs, filter/search keys
-  model.ts              ← Mongoose schema
-  validation.ts         ← Zod schemas (wrapped in body: z.object)
-  service.ts            ← CRUD + queue integration + worker callbacks
-  controller.ts         ← HTTP handlers (uses EUserRole for role checks)
-  routes.ts             ← Express router (AccessLimit([EUserRole.ADMIN]) for guards)
-  generation.swagger.ts ← OpenAPI definitions (full list params: search, filter, sort, pagination)
+  const.ts              ← GenerationStatus, GenerationInputType (TEXT | AUDIO),
+                           GenerationStatusValues, GenerationInputTypeValues
+  types.ts              ← IGeneration, TCreateGenerationBody, TCallbackBody,
+                           GenerationFilterKeys, GenerationExtraFilterKeys
+  model.ts              ← Mongoose schema (queueJobId ref → QueueJob)
+  validation.ts         ← createGenerationSchema, updateGenerationSchema,
+                           callbackGenerationSchema
+  service.ts            ← CRUD + queue integration + worker callbacks + handleCallback
+  controller.ts         ← HTTP handlers (file upload logic, callback handler)
+  routes.ts             ← Express router — callback route uses apiKeyAuth (no JWT)
+  generation.swagger.ts ← OpenAPI definitions
 
 src/Config/queue/
-  const.ts              ← QueueJobType.GENERATION registered here
+  const.ts              ← QueueJobType.GENERATION, QueueJobStatus
+  model.ts              ← QueueJob MongoDB model (persistent job store)
   processors/
-    generation.processor.ts  ← calls GenerationService.mark* — no direct DB
+    generation.processor.ts  ← markProcessing + Kokoro API call; no markCompleted
 
 __tests__/Generation/
-  create.test.ts
+  create.test.ts        ← multipart happy paths + all validation + 401
   list.test.ts
   getOne.test.ts
   update.test.ts
   cancel.test.ts
   delete.test.ts
-```
-
----
-
-## Queue Connection
-
-```
-User → POST /generations
-  → GenerationService.create()
-    → GenerationModel.create({ status: PENDING, bullJobId: "pending", ... })
-    → QueueUtil.enqueue(recordId, QueueJobType.GENERATION, { userId, inputType, ... })
-    → doc.bullJobId = job.id;  doc.save()
-    → returns doc
-
-BullMQ Worker (bootstrap.ts)
-  → processQueueJob   (Config/queue/processors/index.ts)
-    → switch(job.data.type)
-      case QueueJobType.GENERATION
-        → handleGenerationJob   (Config/queue/processors/generation.processor.ts)
-          → GenerationService.markProcessing(recordId)
-          → fetch(config.queue.external_api_url, { recordId, payload })
-          → success: GenerationService.markCompleted(recordId, { audioUrl, videoUrl, ysid })
-          → failure: GenerationService.markFailed(recordId, errorMessage)
-                     throw  → BullMQ retries (up to 3×)
+  callback.test.ts      ← success/failure/validation/auth/404
 ```

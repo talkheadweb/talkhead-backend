@@ -34,7 +34,7 @@ const create = async (userId: string, body: TCreateGenerationBody, keys: TFileKe
   });
 
   try {
-    await QueueUtil.enqueue(
+    const { queueJobId } = await QueueUtil.enqueue(
       String(doc._id),
       QueueJobType.GENERATION,
       {
@@ -46,6 +46,9 @@ const create = async (userId: string, body: TCreateGenerationBody, keys: TFileKe
         inputAudio,
       },
     );
+    // Store the QueueJob reference on the generation doc for easy cross-lookup
+    await GenerationModel.findByIdAndUpdate(doc._id, { queueJobId });
+    doc.queueJobId = queueJobId;
   } catch (err) {
     await GenerationModel.findByIdAndDelete(doc._id);
     throw err;
