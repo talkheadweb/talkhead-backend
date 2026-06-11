@@ -295,10 +295,18 @@ const claimSocialAuthCode = async (code: string): Promise<TSocialCodePayload> =>
  * short-lived presigned URL so the client can display it.
  */
 const resolveProfilePictureUrl = async (raw: string | null | undefined): Promise<string | null> => {
-  if (!raw) return null;
-  if (raw.startsWith("http")) return raw;      // already a full URL (custom domain case)
+  if (!raw || !raw.trim()) return null;
+  if (raw.startsWith("http")) return raw;      // full URL (Google, etc.) — use as-is
+
+  // bare R2 file key — check cache first, generate + cache if missing
+  const cached = await AuthRedisService.presignedUrlCache.get(raw).catch(() => null);
+  if (cached) return cached;
+
   try {
-    return await getPresignedUrl(raw, 3600);   // 1-hour presigned URL
+    // 15 min validity — always longer than the 10 min cache TTL
+    const url = await getPresignedUrl(raw, 15 * 60);
+    AuthRedisService.presignedUrlCache.set(raw, url).catch(() => {/* non-critical */});
+    return url;
   } catch {
     log.warn("Could not generate presigned URL for profile picture", { key: raw });
     return null;
@@ -350,11 +358,15 @@ const updateProfile = async (
     const { fileUrl } = await uploadProfileImageToR2(file.path, file.originalname);
     updates.profilePicture = fileUrl;
 
-    // Delete old picture after a successful upload (best-effort, non-blocking)
+    // Delete old picture + invalidate its presigned URL cache after a successful upload
     if (existing.profilePicture) {
       deleteFromR2(existing.profilePicture).catch(() => {
         log.warn("Could not delete old profile picture", { userId, url: existing.profilePicture });
       });
+      // Only bare file keys have cached presigned URLs; HTTP URLs (Google etc.) are never cached
+      if (!existing.profilePicture.startsWith("http")) {
+        AuthRedisService.presignedUrlCache.del(existing.profilePicture).catch(() => {/* non-critical */});
+      }
     }
   }
 

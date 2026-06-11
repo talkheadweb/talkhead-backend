@@ -46,10 +46,34 @@ class SocialCodeRedisService {
   }
 }
 
+// ── Presigned URL cache ────────────────────────────────────────────────────
+// Keyed by R2 file key (e.g. "avatars/uuid.webp").
+// TTL = 10 min; the actual R2 presigned URL is generated with 15 min validity,
+// so a cached URL is always still valid when it is served to a client.
+// Invalidated immediately when a user's profile picture is replaced.
+class PresignedUrlCache {
+  private key(fileKey: string) {
+    return `${AUTH_REDIS_PREFIX.PRESIGNED_URL}:${fileKey}`;
+  }
+
+  set(fileKey: string, url: string) {
+    return RedisClient.set(this.key(fileKey), url, "EX", AUTH_TTL.PRESIGNED_URL_CACHE);
+  }
+
+  get(fileKey: string) {
+    return RedisClient.get(this.key(fileKey));
+  }
+
+  del(fileKey: string) {
+    return RedisClient.del(this.key(fileKey));
+  }
+}
+
 // ── Auth module instances ──────────────────────────────────────────────────
 export const AuthRedisService = {
-  refreshToken: new TokenRedisService(AUTH_REDIS_PREFIX.REFRESH, AUTH_TTL.REFRESH),
-  verifyToken : new TokenRedisService(AUTH_REDIS_PREFIX.VERIFY,  AUTH_TTL.VERIFY),
-  resetToken  : new TokenRedisService(AUTH_REDIS_PREFIX.RESET,   AUTH_TTL.RESET),
-  socialCode  : new SocialCodeRedisService(),
+  refreshToken   : new TokenRedisService(AUTH_REDIS_PREFIX.REFRESH, AUTH_TTL.REFRESH),
+  verifyToken    : new TokenRedisService(AUTH_REDIS_PREFIX.VERIFY,  AUTH_TTL.VERIFY),
+  resetToken     : new TokenRedisService(AUTH_REDIS_PREFIX.RESET,   AUTH_TTL.RESET),
+  socialCode     : new SocialCodeRedisService(),
+  presignedUrlCache: new PresignedUrlCache(),
 };

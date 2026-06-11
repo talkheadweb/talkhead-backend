@@ -7,6 +7,7 @@ export const AUTH_TTL = {
   VERIFY: 24 * 60 * 60,       // 24 hours
   RESET: 60 * 60,            // 1 hour
   SOCIAL_CODE: 2 * 60,        // 2 min — one-time OAuth claim code
+  PRESIGNED_URL_CACHE: 10 * 60, // 10 min — cached presigned URL (URL itself valid for 15 min)
 } as const;
 
 // ── Redis key prefixes ─────────────────────────────────────────────────────
@@ -15,6 +16,7 @@ export const AUTH_REDIS_PREFIX = {
   VERIFY: "auth:verify",
   RESET: "auth:reset",
   SOCIAL_CODE: "auth:social-code",
+  PRESIGNED_URL: "auth:presigned",
 } as const;
 
 // ── Cookie names ───────────────────────────────────────────────────────────
