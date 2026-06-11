@@ -7,7 +7,7 @@ import { MailUtils } from "@/Utils/mail/resend";
 import { deleteFromR2, getPresignedUrl, uploadProfileImageToR2 } from "@/Utils/file/upload";
 import { v4 as uuidv4 } from "uuid";
 import UserModel from "./model";
-import { AuthRedisService } from "./redisService";
+import { AuthRedisService, TSocialCodePayload } from "./redisService";
 import {
   TLoginInput,
   TLoginResponse,
@@ -262,6 +262,30 @@ const resendVerificationEmail = async (email: string): Promise<void> => {
   log.info("Verification email resent", { userId: user._id });
 };
 
+// ── Social auth code ───────────────────────────────────────────────────────
+/**
+ * Creates a short-lived one-time code that holds both OAuth tokens.
+ * The code is a random UUID stored in Redis with a 2-minute TTL.
+ * Used to transfer the session from the backend OAuth callback to the frontend
+ * without exposing the refresh token in the URL.
+ */
+const createSocialAuthCode = async (tokens: TSocialCodePayload): Promise<string> => {
+  const code = uuidv4();
+  await AuthRedisService.socialCode.set(code, tokens);
+  return code;
+};
+
+/**
+ * Claims a social auth code exactly once.
+ * Deletes the Redis entry immediately — replaying the same code returns 401.
+ */
+const claimSocialAuthCode = async (code: string): Promise<TSocialCodePayload> => {
+  const payload = await AuthRedisService.socialCode.get(code);
+  if (!payload) throw new CustomError("Invalid or expired auth code.", 401);
+  await AuthRedisService.socialCode.del(code);
+  return payload;
+};
+
 // ── Profile picture URL resolution ────────────────────────────────────────
 /**
  * Resolves the stored profilePicture value to a displayable URL.
@@ -391,4 +415,6 @@ export const AuthService = {
   getMe,
   updateProfile,
   changePassword,
+  createSocialAuthCode,
+  claimSocialAuthCode,
 };

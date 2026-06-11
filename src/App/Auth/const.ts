@@ -6,6 +6,7 @@ export const AUTH_TTL = {
   ACCESS: 1 * 60,            // 1 min  — keep in sync with JWT_ACCESS_EXP
   VERIFY: 24 * 60 * 60,       // 24 hours
   RESET: 60 * 60,            // 1 hour
+  SOCIAL_CODE: 2 * 60,        // 2 min — one-time OAuth claim code
 } as const;
 
 // ── Redis key prefixes ─────────────────────────────────────────────────────
@@ -13,6 +14,7 @@ export const AUTH_REDIS_PREFIX = {
   REFRESH: "auth:refresh",
   VERIFY: "auth:verify",
   RESET: "auth:reset",
+  SOCIAL_CODE: "auth:social-code",
 } as const;
 
 // ── Cookie names ───────────────────────────────────────────────────────────

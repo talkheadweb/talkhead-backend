@@ -4,16 +4,17 @@
   Flow for every provider:
     1. <provider>Auth     — redirects the browser to the provider's consent page.
     2. <provider>Callback — provider redirects here; passport strategy resolves
-                            the identity; tokens are issued; browser is redirected to:
-                              FRONTEND_SOCIAL_CALLBACK_URL?token=<accessToken>
+                            the identity; tokens are issued; a short-lived one-time
+                            auth code is stored in Redis; browser is redirected to:
+                              FRONTEND_SOCIAL_CALLBACK_URL?code=<uuid>
                             On failure:
                               FRONTEND_SOCIAL_CALLBACK_URL?error=<message>
 
-  The ?token= value is the standard JWT access token — identical to what
-  POST /auth/login returns in its JSON body.  The refresh token is set as
-  an httpOnly cookie in the same step.  From the frontend's perspective the
-  user is fully logged in after reading this token — no difference from a
-  normal email/password login.
+  The frontend's /auth/callback route handler then calls POST /auth/social/claim
+  with the code. The backend returns both tokens in the response body so the
+  frontend can set them as httpOnly cookies on its own domain. This solves the
+  cross-domain cookie problem: cookies set by dev-api.talkhead.ai cannot be read
+  by localhost:3000, but tokens returned in a JSON body can be forwarded freely.
 
   Adding a new provider:
     1. Add strategy file  → social/strategies/<provider>.strategy.ts
@@ -25,6 +26,8 @@
 
 import config from "@/Config";
 import CustomError from "@/Utils/errors/customError.class";
+import catchAsync from "@/Utils/helper/catchAsync";
+import { sendResponse } from "@/Utils/helper/sendResponse";
 import { NextFunction, Request, Response } from "express";
 import passport from "passport";
 import {
@@ -33,24 +36,18 @@ import {
   getAccessTokenCookieOptions,
   getRefreshTokenCookieOptions,
 } from "../const";
+import { AuthService } from "../service";
+import { TClaimSocialCodeBody } from "../types";
 
 const { set: refreshCookieOptions } = getRefreshTokenCookieOptions(config.auth.cookie);
 const { set: accessCookieOptions  } = getAccessTokenCookieOptions(config.auth.cookie);
 
 // ── Shared helper ──────────────────────────────────────────────────────────────
 
-/**
- * Redirect the browser to the frontend social-callback page.
- * All providers use the same page — the token format is identical regardless
- * of how the user authenticated.
- *
- *   Success:  FRONTEND_SOCIAL_CALLBACK_URL?token=<accessToken>
- *   Failure:  FRONTEND_SOCIAL_CALLBACK_URL?error=<message>
- */
-const redirectToFrontend = (res: Response, result: { token?: string; error?: string }): void => {
+const redirectToFrontend = (res: Response, result: { code?: string; error?: string }): void => {
   const base = config.frontend.social_callback_url ?? config.frontend.verify_page_url;
   const url  = new URL(base);
-  if (result.token) url.searchParams.set("token", result.token);
+  if (result.code)  url.searchParams.set("code",  result.code);
   if (result.error) url.searchParams.set("error", result.error);
   res.redirect(url.toString());
 };
@@ -58,7 +55,7 @@ const redirectToFrontend = (res: Response, result: { token?: string; error?: str
 // ── Google ─────────────────────────────────────────────────────────────────────
 
 /**
- * GET /api/v1/auth/google
+ * GET /api/v1/auth/social/google
  * Redirects the browser to Google's consent screen.
  * Returns 501 if GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are not configured.
  */
@@ -71,32 +68,67 @@ const googleAuth = (req: Request, res: Response, next: NextFunction): void => {
 };
 
 /**
- * GET /api/v1/auth/google/callback
+ * GET /api/v1/auth/social/google/callback
  *
  * Google redirects here after the user grants (or denies) access.
  *
- * What happens inside:
- *   1. Passport exchanges the ?code= for a Google profile (Google API call).
- *   2. The strategy calls SocialAuthService.socialLogin → finds or creates the user.
- *   3. Access + refresh tokens are issued (same JWT format as normal login).
- *   4. Refresh token → httpOnly cookie  (browser stores it automatically).
- *   5. Access token  → ?token= in the frontend redirect.
+ * What happens:
+ *   1. Passport exchanges the ?code= for a Google profile.
+ *   2. Strategy calls SocialAuthService.socialLogin → finds or creates the user.
+ *   3. Access + refresh tokens are issued.
+ *   4. Both tokens stored in Redis under a random UUID (2-min TTL, single-use).
+ *   5. Browser redirected to: FRONTEND_SOCIAL_CALLBACK_URL?code=<uuid>
+ *
+ * The frontend then calls POST /auth/social/claim to exchange the code for
+ * both tokens — which it sets as httpOnly cookies on its own domain.
  */
 const googleCallback = (req: Request, res: Response, next: NextFunction): void => {
   passport.authenticate(
     "google",
     { session: false },
-    (err: Error | null, oauthUser: Express.User | false) => {
+    async (err: Error | null, oauthUser: Express.User | false) => {
       if (err || !oauthUser) {
         redirectToFrontend(res, { error: err?.message ?? "Google authentication failed." });
         return;
       }
-      res.cookie(ACCESS_COOKIE_NAME,  oauthUser.accessToken!,  accessCookieOptions);
-      res.cookie(REFRESH_COOKIE_NAME, oauthUser.refreshToken!, refreshCookieOptions);
-      redirectToFrontend(res, { token: oauthUser.accessToken! });
+      try {
+        const code = await AuthService.createSocialAuthCode({
+          accessToken : oauthUser.accessToken!,
+          refreshToken: oauthUser.refreshToken!,
+        });
+        redirectToFrontend(res, { code });
+      } catch {
+        redirectToFrontend(res, { error: "Failed to create auth session. Please try again." });
+      }
     },
   )(req, res, next);
 };
+
+/**
+ * POST /api/v1/auth/social/claim
+ *
+ * Exchanges a one-time auth code (issued by the OAuth callback) for both tokens.
+ * The code is deleted from Redis immediately — replaying returns 401.
+ *
+ * Sets access_token + refresh_token as httpOnly cookies (same as POST /auth/login).
+ * The Next.js route handler at /auth/callback forwards these Set-Cookie headers
+ * in its own response so the browser stores them for localhost:3000, not for
+ * dev-api.talkhead.ai. This works because Express does not set a Domain attribute
+ * on the cookie — the browser always binds a domainless cookie to the response origin.
+ */
+const claimSocialCode = catchAsync(async (req: Request, res: Response) => {
+  const { code } = req.body as TClaimSocialCodeBody;
+  const tokens = await AuthService.claimSocialAuthCode(code);
+
+  res.cookie(ACCESS_COOKIE_NAME,  tokens.accessToken,  accessCookieOptions);
+  res.cookie(REFRESH_COOKIE_NAME, tokens.refreshToken, refreshCookieOptions);
+
+  sendResponse.success(res, {
+    statusCode: 200,
+    message: "Social login successful.",
+    req,
+  });
+});
 
 // ── Add more providers below ───────────────────────────────────────────────────
 // Each provider is just two functions: Auth (redirect) + Callback (handle result).
@@ -105,4 +137,5 @@ const googleCallback = (req: Request, res: Response, next: NextFunction): void =
 export const SocialAuthController = {
   googleAuth,
   googleCallback,
+  claimSocialCode,
 };

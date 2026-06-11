@@ -59,3 +59,4 @@ export type TVerifyEmailBody       = z.infer<typeof AuthValidation.verifyEmailZo
 export type TResendVerificationBody= z.infer<typeof AuthValidation.resendVerificationZodSchema>["body"];
 export type TUpdateProfileBody     = z.infer<typeof AuthValidation.updateProfileZodSchema>["body"];
 export type TChangePasswordBody    = z.infer<typeof AuthValidation.changePasswordZodSchema>["body"];
+export type TClaimSocialCodeBody   = z.infer<typeof AuthValidation.claimSocialCodeZodSchema>["body"];
