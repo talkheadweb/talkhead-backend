@@ -3,14 +3,18 @@ import app from "@/app";
 import { Types } from "mongoose";
 
 jest.mock("@/Config/queue");
+jest.mock("@/App/Queue/model", () => ({
+  __esModule: true,
+  default: {
+    findById: jest.fn(),
+  },
+}));
+
+import QueueJobModel from "@/App/Queue/model";
 
 const ENDPOINT  = "/api/v1/queue";
 const VALID_KEY = process.env.QUEUE_API_KEY ?? "test-api-key";
 const mockId    = new Types.ObjectId().toHexString();
-
-const { QueueJobModel } = jest.requireMock("@/Config/queue") as {
-  QueueJobModel: { findById: jest.Mock };
-};
 
 const makeDoc = () => ({
   _id     : mockId,
@@ -23,14 +27,14 @@ const makeDoc = () => ({
 
 describe("GET /queue/:id", () => {
   it("200 — returns job by id", async () => {
-    QueueJobModel.findById = jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(makeDoc()) });
+    (QueueJobModel.findById as jest.Mock).mockReturnValue({ lean: jest.fn().mockResolvedValue(makeDoc()) });
     const res = await request(app).get(`${ENDPOINT}/${mockId}`).set("x-api-key", VALID_KEY);
     expect(res.status).toBe(200);
     expect(res.body.data._id).toBe(mockId);
   });
 
   it("404 — job not found", async () => {
-    QueueJobModel.findById = jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(null) });
+    (QueueJobModel.findById as jest.Mock).mockReturnValue({ lean: jest.fn().mockResolvedValue(null) });
     const res = await request(app).get(`${ENDPOINT}/${mockId}`).set("x-api-key", VALID_KEY);
     expect(res.status).toBe(404);
   });

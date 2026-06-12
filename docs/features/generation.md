@@ -1,6 +1,6 @@
 # Generation Module
 
-Manages AI generation jobs powered by the Kokoro TTS engine. A user submits a request with a voice ID, reference image, and either text or audio input. The server creates a MongoDB record, enqueues a BullMQ job (also persisted in `QueueJob`), and the worker forwards the job to the Kokoro backend. Kokoro processes asynchronously and calls back to mark the job complete or failed.
+Manages AI generation jobs powered by the Kokoro TTS engine. A user submits a request with a voice ID, reference image, and either text or audio input. The server creates a MongoDB record, enqueues a BullMQ job (also persisted in `QueueJob`), and the worker calls the external API and awaits the response directly — saving `outputUrl` on success or `errorMessage` on failure.
 
 ---
 
@@ -164,7 +164,7 @@ Called by the Kokoro backend when async processing finishes. **No JWT required**
 2. **Ownership:** users see and cancel only their own jobs; admins have full access
 3. **File rules:** `referenceImage` always required (file or URL); `inputAudio` required only when `inputType=audio`
 4. **voiceId always required:** every generation needs a Kokoro voice — no default
-5. **Async completion:** the worker sends the job to Kokoro and stops — completion arrives via callback webhook, not from the worker
+5. **Request-response completion:** the worker POSTs to the external API and awaits `{ success, outputUrl?, message? }` directly — no separate callback webhook needed for normal completion
 6. **Queue persistence:** every enqueued job is also stored in the `QueueJob` MongoDB collection via `QueueUtil.enqueue` — durable even if Redis is flushed
 7. **Retry policy:** BullMQ retries a failed external API call 3× with exponential backoff (2 s, 4 s, 8 s)
 8. **Constants:** all status/type values come from `const.ts` — never use raw strings
@@ -179,7 +179,7 @@ The queue processor (`Config/queue/processors/generation.processor.ts`) never to
 |--------|-------------|--------------|
 | `GenerationService.markProcessing(recordId)` | Worker picks up job | `status → PROCESSING` |
 | `GenerationService.markFailed(recordId, msg)` | Kokoro API call fails | `status → FAILED` + `errorMessage` |
-| `GenerationService.markCompleted(id, url?)` | Kokoro calls `/callback` with `success=true` | `status → COMPLETED` + `outputUrl` + `completedAt` |
+| `GenerationService.markCompleted(id, url?)` | API response `success=true` | `status → COMPLETED` + `outputUrl` + `completedAt` |
 
 ---
 
@@ -203,15 +203,18 @@ Controller uploads files to R2 (after successful enqueue)
 BullMQ Worker (bootstrap.ts):
   handleGenerationJob(job)
   ├─ GenerationService.markProcessing(recordId)   → status = PROCESSING
-  └─ POST to Kokoro external API { recordId, payload }
-       Kokoro accepted → done (awaiting callback)
-       Kokoro error → markFailed + throw → BullMQ retries (up to 3×)
-
-Kokoro backend → POST /api/v1/generations/:id/callback
-  { success: true, outputUrl: "..." }
-  → GenerationService.handleCallback()
-       success → markCompleted → status = COMPLETED + outputUrl
-       failure → markFailed   → status = FAILED
+  ├─ callGenerationApi(recordId, payload)
+  │     dev  → mock { success: true, outputUrl: "cdn.example.com/..." }
+  │     prod → POST QUEUE_EXTERNAL_API_URL → await { success, outputUrl?, message? }
+  │
+  ├─ success=true
+  │     GenerationService.markCompleted(recordId, outputUrl)
+  │     → status = COMPLETED, outputUrl, completedAt
+  │
+  └─ success=false OR network error
+        GenerationService.markFailed(recordId, msg)
+        → status = FAILED, errorMessage
+        throw → BullMQ retries (up to 3×, exponential backoff)
 ```
 
 ---
@@ -232,11 +235,13 @@ src/App/Core/Generation/
   routes.ts             ← Express router — callback route uses apiKeyAuth (no JWT)
   generation.swagger.ts ← OpenAPI definitions
 
+src/App/Queue/
+  model.ts              ← QueueJob MongoDB model (persistent job store)
+
 src/Config/queue/
   const.ts              ← QueueJobType.GENERATION, QueueJobStatus
-  model.ts              ← QueueJob MongoDB model (persistent job store)
   processors/
-    generation.processor.ts  ← markProcessing + Kokoro API call; no markCompleted
+    generation.processor.ts  ← callGenerationApi (dev mock / prod HTTP) + markProcessing/Completed/Failed
 
 __tests__/Generation/
   create.test.ts        ← multipart happy paths + all validation + 401

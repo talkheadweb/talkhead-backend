@@ -29,7 +29,7 @@ import config from "@/Config";
 import { LogService } from "@/Config/logger/utils";
 import type { TQueueJobType } from "./const";
 import { QueueJobStatus } from "./const";
-import QueueJobModel from "./model";
+import QueueJobModel from "@/App/Queue/model";
 import type { TEnqueueOptions, TEnqueueResult, TProcessor, TQueueJobData } from "./types";
 
 const log = LogService.APPLICATION;
@@ -47,8 +47,8 @@ export const bullQueue = new Queue(config.queue.name, {
   defaultJobOptions: {
     attempts : 3,
     backoff  : { type: "exponential", delay: 2000 },
-    removeOnComplete: { count: 100 },
-    removeOnFail    : { count: 50  },
+    removeOnComplete: { count: 5 },
+    removeOnFail    : { count: 5 },
   },
 });
 
@@ -195,5 +195,4 @@ const remove = async (bullJobId: string): Promise<void> => {
 
 const close = (): Promise<void> => bullQueue.close();
 
-export { QueueJobModel };
 export const QueueUtil = { enqueue, getJobState, remove, close };

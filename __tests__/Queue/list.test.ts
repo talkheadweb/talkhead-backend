@@ -1,19 +1,20 @@
 import request from "supertest";
 import app from "@/app";
 
-// Mock entire queue infrastructure — no Redis connections in tests
 jest.mock("@/Config/queue");
+jest.mock("@/App/Queue/model", () => ({
+  __esModule: true,
+  default: {
+    find          : jest.fn(),
+    countDocuments: jest.fn(),
+    schema        : { path: jest.fn().mockReturnValue({ instance: "String" }) },
+  },
+}));
+
+import QueueJobModel from "@/App/Queue/model";
 
 const ENDPOINT   = "/api/v1/queue";
 const VALID_KEY  = process.env.QUEUE_API_KEY ?? "test-api-key";
-
-const { QueueJobModel } = jest.requireMock("@/Config/queue") as {
-  QueueJobModel: {
-    find          : jest.Mock;
-    countDocuments: jest.Mock;
-    schema        : { path: jest.Mock };
-  };
-};
 
 const makeDocs = (n = 2) =>
   Array.from({ length: n }, (_, i) => ({
@@ -29,7 +30,7 @@ const makeDocs = (n = 2) =>
   }));
 
 const mockFind = (docs: ReturnType<typeof makeDocs>) => {
-  QueueJobModel.find = jest.fn().mockReturnValue({
+  (QueueJobModel.find as jest.Mock).mockReturnValue({
     sort : jest.fn().mockReturnThis(),
     skip : jest.fn().mockReturnThis(),
     limit: jest.fn().mockReturnThis(),
@@ -40,7 +41,7 @@ const mockFind = (docs: ReturnType<typeof makeDocs>) => {
 describe("GET /queue", () => {
   beforeEach(() => {
     mockFind(makeDocs(2));
-    QueueJobModel.countDocuments = jest.fn().mockResolvedValue(2);
+    (QueueJobModel.countDocuments as jest.Mock).mockResolvedValue(2);
   });
 
   // ── Happy path ──────────────────────────────────────────────────────────
@@ -56,7 +57,7 @@ describe("GET /queue", () => {
 
   it("200 — empty list when no jobs exist", async () => {
     mockFind([]);
-    QueueJobModel.countDocuments = jest.fn().mockResolvedValue(0);
+    (QueueJobModel.countDocuments as jest.Mock).mockResolvedValue(0);
     const res = await request(app).get(ENDPOINT).set("x-api-key", VALID_KEY);
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(0);
@@ -114,7 +115,6 @@ describe("GET /queue", () => {
 
   it("200 — no filter object when no params passed", async () => {
     await request(app).get(ENDPOINT).set("x-api-key", VALID_KEY);
-    // Empty conditions → no $and wrapper
     expect(QueueJobModel.find).toHaveBeenCalledWith({});
   });
 

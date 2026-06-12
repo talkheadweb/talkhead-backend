@@ -1,4 +1,5 @@
-import { QueueJobModel, QueueUtil } from "@/Config/queue";
+import QueueJobModel from "@/App/Queue/model";
+import { QueueUtil } from "@/Config/queue";
 import { QueueJobStatus } from "@/Config/queue/const";
 import { IQueueJob } from "@/Config/queue/types";
 import { calculatePagination, manageSorting, MongoQueryHelper } from "@/Utils/helper/queryOptimize";

@@ -1,21 +1,6 @@
-/**
- * QueueJob — persistent MongoDB mirror of every BullMQ job.
- *
- * BullMQ lives in Redis and is not durable — this collection is the
- * permanent record of every job ever enqueued, regardless of Redis state.
- *
- * Lifecycle (updated by QueueUtil.enqueue + BullWorker event listeners):
- *   pending → processing → completed | failed | cancelled
- *
- * `bullJobId` is the BullMQ-internal cache ID (stored for debugging /
- * cross-referencing only — not required for any business logic).
- * `recordId` is the feature document's _id (e.g. Generation._id) and is
- * the canonical link back to the owning record.
- */
-
 import mongoose, { Schema, Document, Model } from "mongoose";
-import { QueueJobStatus, QueueJobStatusValues, QueueJobType } from "./const";
-import type { IQueueJob } from "./types";
+import { QueueJobStatus, QueueJobStatusValues, QueueJobType } from "@/Config/queue/const";
+import type { IQueueJob } from "@/Config/queue/types";
 
 export type TQueueJobDocument = IQueueJob & Document;
 
@@ -44,7 +29,7 @@ const QueueJobSchema = new Schema<TQueueJobDocument>(
       index   : true,
     },
     bullJobId: {
-      type: String,   // optional — BullMQ cache ID, informational only
+      type: String,
     },
     attempts: {
       type   : Number,
