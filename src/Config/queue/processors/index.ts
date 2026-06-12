@@ -22,11 +22,12 @@
  * ── Processor contract ───────────────────────────────────────────────────
  *
  *   Every processor MUST follow this lifecycle:
- *     a. Update record → status: PROCESSING
- *     b. Call external API
- *     c. On success → update record → status: COMPLETED + save result fields
- *     d. On failure → update record → status: FAILED + errorMessage
- *                     then throw Error  (BullMQ retries up to 3× with backoff)
+ *     a. markProcessing(recordId)
+ *     b. POST to external API — await the response
+ *     c. Response { success: true,  outputUrl } → markCompleted(recordId, outputUrl)
+ *        Response { success: false, message  } → markFailed(recordId, message) + throw
+ *        Network / HTTP error                  → markFailed(recordId, msg)    + throw
+ *        (throw causes BullMQ to retry up to 3× with exponential backoff)
  */
 
 import { Job } from "bullmq";
