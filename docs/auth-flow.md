@@ -224,16 +224,16 @@ without any configuration change.
 
 ```
 STEP 1 — Frontend navigates browser to backend, passing its own origin
-  GET /api/v1/auth/social/google?origin=https://demo.talkhead.ai
+  GET /api/v1/auth/social/google?origin=https://app.example.com
 
 STEP 2 — Backend validates origin against CORS_ALLOWED_ORIGINS whitelist,
           encodes it in the OAuth state parameter, redirects to Google
-  → https://accounts.google.com/o/oauth2/auth?...&state=https://demo.talkhead.ai
+  → https://accounts.google.com/o/oauth2/auth?...&state=https://app.example.com
 
 STEP 3 — User approves on Google
 
 STEP 4 — Google redirects browser back to backend (state is returned unchanged)
-  GET /api/v1/auth/social/google/callback?code=xyz&state=https://demo.talkhead.ai
+  GET /api/v1/auth/social/google/callback?code=xyz&state=https://app.example.com
 
 STEP 5 — Backend re-validates origin from state (open-redirect guard)
 
@@ -273,6 +273,43 @@ STEP 12 — Browser stores cookies for the frontend domain
           Session established — identical to email/password login from here
 ```
 
+### POST /auth/social/claim — quick reference
+
+This is the only endpoint in the social flow that a frontend developer needs to call
+manually (all other steps are browser redirects handled automatically).
+
+```
+POST /api/v1/auth/social/claim
+Content-Type: application/json
+
+{ "code": "550e8400-e29b-41d4-a716-446655440000" }
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `code` | UUID string | ✅ | The value from the `?code=` query param in the `/auth/callback` redirect |
+
+**Response 200** — sets two httpOnly cookies, identical to a regular login:
+
+```
+Set-Cookie: access_token=<jwt>;  HttpOnly; SameSite=lax; Max-Age=900
+Set-Cookie: refresh_token=<jwt>; HttpOnly; SameSite=lax; Max-Age=604800
+
+{ "success": true, "message": "Social login successful." }
+```
+
+**Response 401** — code expired (> 2 min) or already used:
+```json
+{ "success": false, "message": "Invalid or expired auth code." }
+```
+
+**Important:** this call must be made **server-side** (e.g. Next.js Route Handler), not
+from the browser directly. The route handler then forwards the `Set-Cookie` headers in
+its own redirect response so the browser binds the cookies to the frontend domain, not
+the backend API domain.
+
+---
+
 ### Why the claim code approach
 
 | Problem | Solution |
@@ -288,12 +325,17 @@ The same deployed backend serves multiple frontend environments:
 
 ```
 Local dev:   GET /api/v1/auth/social/google?origin=http://localhost:3000
-Production:  GET /api/v1/auth/social/google?origin=https://demo.talkhead.ai
+Production:  GET /api/v1/auth/social/google?origin=https://app.example.com
 ```
 
-The origin is validated against `CORS_ALLOWED_ORIGINS` before use.
-Unrecognised origins are rejected (falls back to `FRONTEND_SOCIAL_CALLBACK_URL` if set).
+The origin is validated against `CORS_ALLOWED_ORIGINS` before use. Unrecognised or
+missing origins fall back to `FRONTEND_SOCIAL_CALLBACK_URL` env var.
 The validated origin is re-checked in the callback — it is never used as an open redirect.
+
+**Frontend implementation note:** the `?origin=` value must be read from
+`window.location.origin` at click time (not at render/SSR time) so it always reflects
+the actual domain the user is on. Reading it during server-side rendering can produce
+an empty string, causing the backend to ignore it and fall back to the env var.
 
 ### Account merging
 

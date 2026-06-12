@@ -2,23 +2,24 @@
   OpenAPI path definitions for Social / OAuth login.
 
   Routes are mounted at /auth/social (see Routes/index.ts), so the full paths are:
-    GET /api/v1/auth/social/google
-    GET /api/v1/auth/social/google/callback
+    GET  /api/v1/auth/social/google
+    GET  /api/v1/auth/social/google/callback   (handled by Google redirect — do not call directly)
+    POST /api/v1/auth/social/claim             (frontend calls this to exchange code for session)
 
-  Note: these are browser-redirect flows — the client navigates to the URL in
-  a normal browser tab, NOT via fetch/XHR. That is why the response is a 302
-  redirect rather than JSON.
-
-  Token delivery:
-    - access token  → appended to the redirect URL as ?token=<jwt>
-    - refresh token → set as an httpOnly cookie (`refresh_token`)
-  The frontend reads the access token from the query string, stores it, and
-  then uses it identically to a normal login access token.
+  Full flow:
+    1. Frontend navigates browser to GET /auth/social/google?origin=<frontend-origin>
+    2. Backend validates origin, embeds it in OAuth state, redirects to Google consent screen
+    3. Google redirects to GET /auth/social/google/callback?code=...&state=<origin>
+    4. Backend exchanges code with Google, creates a one-time code (UUID, 2-min TTL in Redis),
+       and redirects the browser to <origin>/auth/callback?code=<uuid>
+    5. Frontend (server-side route handler) calls POST /auth/social/claim { code }
+    6. Backend validates code, deletes it (one-time use), returns httpOnly cookies
+    7. Frontend forwards Set-Cookie headers to the browser — user is now authenticated
 */
 
-import { withTag } from "@/Config/swagger/helpers";
+import { jsonBody, str, withTag } from "@/Config/swagger/helpers";
 
-const { get } = withTag("Social Auth");
+const { get, post } = withTag("Social Auth");
 
 export const socialAuthPaths: Record<string, object> = {
 
@@ -27,9 +28,20 @@ export const socialAuthPaths: Record<string, object> = {
     description: [
       "Redirects the browser to Google's OAuth 2.0 consent screen.",
       "Open this URL in a browser tab — do NOT call it via fetch/XHR.",
-      "After the user grants permission, Google redirects back to /auth/social/google/callback.",
+      "Pass `?origin=<your-frontend-origin>` so the backend knows where to redirect after auth.",
+      "The origin must be in the CORS_ALLOWED_ORIGINS whitelist.",
+      "Example: GET /api/v1/auth/social/google?origin=https://app.example.com",
     ],
-    responses  : {
+    parameters: [
+      {
+        name       : "origin",
+        in         : "query",
+        required   : false,
+        schema     : { type: "string", example: "https://app.example.com" },
+        description: "Your frontend origin (protocol + host, no path). Must be in CORS allowlist. Falls back to FRONTEND_SOCIAL_CALLBACK_URL env var if omitted.",
+      },
+    ],
+    responses: {
       302: {
         description: "Redirect to Google consent screen",
         headers    : {
@@ -43,33 +55,51 @@ export const socialAuthPaths: Record<string, object> = {
   }),
 
   "/auth/social/google/callback": get({
-    summary    : "Google OAuth callback",
+    summary    : "Google OAuth callback (internal — do not call directly)",
     description: [
-      "Handled automatically by Google after the user grants permission.",
+      "Google redirects the browser here after the user grants permission.",
       "Do NOT call this endpoint directly.",
-      "On success: redirects to FRONTEND_SOCIAL_CALLBACK_URL?token=<accessToken>.",
-      "A `refresh_token` httpOnly cookie is also set (same behaviour as normal login).",
-      "The frontend reads the access token from the query string and stores it.",
-      "On failure (access denied or error): redirects to FRONTEND_SOCIAL_CALLBACK_URL?error=oauth_failed.",
+      "On success: creates a one-time auth code (2-minute TTL) and redirects to <origin>/auth/callback?code=<uuid>.",
+      "On failure: redirects to <origin>/auth/callback?error=<message>.",
+      "The `origin` is recovered from the OAuth `state` parameter set in step 1.",
     ],
     parameters: [
       { name: "code",  in: "query", required: false, schema: { type: "string" }, description: "Authorization code from Google (set by Google automatically)" },
-      { name: "state", in: "query", required: false, schema: { type: "string" }, description: "CSRF state parameter (set by Google automatically)" },
+      { name: "state", in: "query", required: false, schema: { type: "string" }, description: "Frontend origin encoded as OAuth state (set by this backend in step 1)" },
+      { name: "error", in: "query", required: false, schema: { type: "string" }, description: "Error code from Google if the user denied access" },
     ],
     responses: {
       302: {
-        description: "Redirect to frontend with access token or error flag",
+        description: "Redirect to frontend callback page",
         headers    : {
           Location: {
             schema     : { type: "string" },
-            description: "FRONTEND_SOCIAL_CALLBACK_URL?token=<jwt>  or  ?error=oauth_failed",
-          },
-          "Set-Cookie": {
-            schema     : { type: "string" },
-            description: "refresh_token=<jwt>; HttpOnly; SameSite=Strict (on success only)",
+            description: "<origin>/auth/callback?code=<uuid>  or  <origin>/auth/callback?error=<message>",
           },
         },
       },
+    },
+  }),
+
+  "/auth/social/claim": post({
+    summary    : "Exchange one-time code for session cookies",
+    description: [
+      "Exchanges the short-lived one-time code (received in the frontend callback URL) for httpOnly session cookies.",
+      "This call is made server-side by the frontend route handler — NOT from the browser directly.",
+      "The code is single-use and expires after 2 minutes.",
+      "On success: sets `access_token` and `refresh_token` httpOnly cookies, identical to a regular login.",
+      "On failure (expired or already used): returns 401.",
+    ],
+    body: jsonBody({
+      required: ["code"],
+      props   : {
+        code: str({ format: "uuid", example: "550e8400-e29b-41d4-a716-446655440000" }),
+      },
+    }),
+    responses: {
+      200: { description: "Session cookies set — access_token and refresh_token httpOnly cookies issued (same as regular login)" },
+      400: { description: "Missing or invalid `code` field" },
+      401: { description: "Code is expired (> 2 minutes) or has already been used" },
     },
   }),
 
