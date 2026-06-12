@@ -43,6 +43,10 @@ export const QueueJobModel = {
   findByIdAndUpdate  : jest.fn().mockResolvedValue(null),
   findOneAndUpdate   : jest.fn().mockResolvedValue(null),
   countDocuments     : jest.fn().mockResolvedValue(0),
+  // schema.path() used by MongoQueryHelper to derive filter type
+  schema             : {
+    path: jest.fn().mockReturnValue({ instance: "String" }),
+  },
 };
 
 // Mock bullConnection (exported from index, may be imported elsewhere)

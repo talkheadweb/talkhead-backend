@@ -1,8 +1,8 @@
 /*
   OpenAPI path definitions for the Queue module.
 
-  Uses the builder DSL from @/Config/swagger/helpers.
-  All endpoints are protected by x-api-key header (API key auth).
+  All endpoints are protected by x-api-key header.
+  Source of truth for job data is MongoDB (QueueJob collection) — not Redis.
 */
 
 import {
@@ -17,71 +17,66 @@ import {
   str,
   withTag,
 } from "@/Config/swagger/helpers";
-import { QueueJobType } from "@/Config/queue/const";
-import { QueueJobStatuses } from "./types";
+import { QueueJobType, QueueJobStatusValues } from "@/Config/queue/const";
 
 const { post, get, del } = withTag("Queue");
 
-// ── Reusable fragments ─────────────────────────────────────────────────────
-const queueJobTypeValues = Object.values(QueueJobType);
+const queueJobTypeValues  = Object.values(QueueJobType);
+const queueJobStatusValues = [...QueueJobStatusValues];
 
 const apiKeyHeader = {
   in: "header", name: "x-api-key", required: true,
   schema: { type: "string" },
-  description: "API key issued to the external service",
+  description: "API key for queue management endpoints",
 };
 
 const jobIdPath = {
-  in: "path", name: "jobId", required: true,
+  in: "path", name: "id", required: true,
   schema: { type: "string" },
-  description: "BullMQ job ID returned from POST /queue",
+  description: "MongoDB _id of the QueueJob document",
 };
 
-// Actual data shape returned by GET /queue and GET /queue/:jobId
 const queueJobSchema = {
   type      : "object",
   properties: {
-    bullJobId   : str({ example: "42" }),
+    _id         : str({ example: "664f1b2c3e4a5b6c7d8e9f02" }),
     recordId    : str({ example: "QJ-a1b2c3d4" }),
     type        : enumOf(queueJobTypeValues, { example: queueJobTypeValues[0] }),
-    status      : enumOf([...QueueJobStatuses]),
+    status      : enumOf(queueJobStatusValues),
     payload     : { type: "object", additionalProperties: true },
+    bullJobId   : str({ example: "664f1b2c3e4a5b6c7d8e9f00" }),
     attempts    : { type: "integer", example: 0 },
-    createdAt   : { type: "string", format: "date-time" },
-    processedAt : { type: "string", format: "date-time", nullable: true },
+    startedAt   : { type: "string", format: "date-time", nullable: true },
     finishedAt  : { type: "string", format: "date-time", nullable: true },
     failedReason: { type: "string", nullable: true },
+    createdAt   : { type: "string", format: "date-time" },
+    updatedAt   : { type: "string", format: "date-time" },
   },
 };
 
-// ── List query parameters ──────────────────────────────────────────────────
 const queueListParams: object[] = [
   apiKeyHeader,
   queryParam("search", { type: "string" },             "Partial match on recordId or bullJobId"),
-  queryParam("status", enumOf([...QueueJobStatuses]),  "Filter by BullMQ job status"),
+  queryParam("status", enumOf(queueJobStatusValues),   "Filter by job status"),
   queryParam("type",   enumOf(queueJobTypeValues),     "Filter by job type"),
   ...paginationParams,
   ...sortParams,
 ];
 
-// ── Paths ──────────────────────────────────────────────────────────────────
 export const queuePaths: Record<string, object> = {
 
   "/queue": {
     ...post({
       summary    : "Create a queue job",
-      description:
-        "Creates a new job and adds it to the BullMQ queue. " +
-        "Returns `bullJobId` — pass this to management endpoints for tracking.",
+      description: "Creates a new job in MongoDB and adds it to BullMQ. Returns the persisted QueueJob document.",
       parameters : [apiKeyHeader],
       body       : jsonBody({
         required: ["type"],
         props   : {
           type    : enumOf(queueJobTypeValues, { example: queueJobTypeValues[0] }),
-          payload : { type: "object", additionalProperties: true, default: {}, description: "Feature-specific JSON data" },
+          payload : { type: "object", additionalProperties: true, default: {}, description: "Feature-specific data" },
           priority: { type: "integer", minimum: 1, maximum: 100, description: "Lower = higher priority" },
           delay   : { type: "integer", minimum: 0, description: "Delay before processing (ms)" },
-          note    : str({ max: 500, example: "Triggered by user action." }),
         },
       }),
       responses: {
@@ -93,9 +88,9 @@ export const queuePaths: Record<string, object> = {
     ...get({
       summary    : "List queue jobs",
       description: [
-        "Returns a paginated list of BullMQ jobs.",
-        "Supports search (by recordId or bullJobId), filter by status and type, sorting, and pagination.",
-        "Data is read live from BullMQ (Redis) — not from MongoDB.",
+        "Returns a paginated list of QueueJob documents from MongoDB.",
+        "Supports full-text search on recordId/bullJobId, discrete filters on status/type, sort, and pagination.",
+        "MongoDB is the source of truth — full history, not limited to Redis TTL.",
       ],
       parameters : queueListParams,
       responses  : {
@@ -105,10 +100,10 @@ export const queuePaths: Record<string, object> = {
     }),
   },
 
-  "/queue/{jobId}": {
+  "/queue/{id}": {
     ...get({
       summary    : "Get a queue job",
-      description: "Returns a single job by its BullMQ job ID.",
+      description: "Returns a single QueueJob document by its MongoDB _id.",
       parameters : [apiKeyHeader, jobIdPath],
       responses  : {
         ...ok("Queue job fetched.", queueJobSchema),
@@ -117,13 +112,11 @@ export const queuePaths: Record<string, object> = {
     }),
 
     ...del({
-      summary    : "Cancel / remove a queue job",
-      description:
-        "Removes the job from the BullMQ queue. " +
-        "Cannot cancel a job that is currently active or already completed.",
+      summary    : "Cancel a queue job",
+      description: "Cancels a pending job — removes it from BullMQ and marks it cancelled in MongoDB. Returns 409 if already processing, completed, or cancelled.",
       parameters : [apiKeyHeader, jobIdPath],
       responses  : {
-        ...ok("Queue job cancelled."),
+        ...ok("Queue job cancelled.", queueJobSchema),
         ...errors(401, 403, 404, 409),
       },
     }),

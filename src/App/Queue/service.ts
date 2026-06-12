@@ -1,69 +1,57 @@
-/**
- * Queue service — manages queue jobs via REST.
- *
- * Primary source of truth is MongoDB (QueueJobModel) — durable across Redis restarts.
- * BullMQ/Redis is used for live state checks and cancellation only.
- */
-
-import { bullQueue, QueueJobModel, QueueUtil } from "@/Config/queue";
+import { QueueJobModel, QueueUtil } from "@/Config/queue";
 import { QueueJobStatus } from "@/Config/queue/const";
+import { IQueueJob } from "@/Config/queue/types";
+import { calculatePagination, manageSorting, MongoQueryHelper } from "@/Utils/helper/queryOptimize";
 import CustomError from "@/Utils/errors/customError.class";
-import { TCreateQueueJobBody, TQueueJobStatus } from "./types";
+import { Types } from "mongoose";
 import { v4 as uuidv4 } from "uuid";
+import {
+  QueueJobFilterKeys,
+  QueueJobSearchKeys,
+  TCreateQueueJobBody,
+  TListQueueJobsPayload,
+} from "./types";
 
 // ── Create ─────────────────────────────────────────────────────────────────
 const create = async (body: TCreateQueueJobBody) => {
   const recordId = `QJ-${uuidv4().replace(/-/g, "").slice(0, 8)}`;
-
   const { queueJobId } = await QueueUtil.enqueue(recordId, body.type, body.payload, {
     priority: body.priority,
     delay   : body.delay,
   });
-
   return QueueJobModel.findById(queueJobId).lean();
 };
 
 // ── List ───────────────────────────────────────────────────────────────────
-export type TListQueueQuery = {
-  status?   : string;
-  type?     : string;
-  search?   : string;   // partial match on recordId or bullJobId
-  page?     : number;
-  limit?    : number;
-  sortBy?   : string;
-  sortOrder?: "asc" | "desc";
-};
-
-const list = async (query: TListQueueQuery = {}) => {
-  const {
-    status,
-    type,
-    search,
-    page      = 1,
-    limit     = 10,
-    sortBy    = "createdAt",
-    sortOrder = "desc",
-  } = query;
+const list = async (query: TListQueueJobsPayload) => {
+  const { page, limit, skip } = calculatePagination(query.paginationFields);
+  const { sortBy, sortOrder } = manageSorting<IQueueJob>(query.sortFields);
+  const { search }   = query.searchFields as { search?: string };
+  const filterFields = query.filterFields as Record<string, string>;
 
   const conditions: Record<string, unknown>[] = [];
-  if (status) conditions.push({ status });
-  if (type)   conditions.push({ type });
+
   if (search) {
-    conditions.push({
-      $or: [
-        { recordId: { $regex: search, $options: "i" } },
-        { bullJobId: { $regex: search, $options: "i" } },
-      ],
-    });
+    const orConditions = QueueJobSearchKeys.map(key =>
+      MongoQueryHelper("String", String(key), search),
+    );
+    if (Types.ObjectId.isValid(search)) orConditions.push({ _id: search });
+    conditions.push({ $or: orConditions });
+  }
+
+  for (const key of QueueJobFilterKeys) {
+    const value = filterFields[String(key)];
+    if (!value) continue;
+    const instance = QueueJobModel.schema.path(String(key))?.instance as Parameters<typeof MongoQueryHelper>[0] | undefined;
+    if (instance) conditions.push(MongoQueryHelper(instance, String(key), value));
   }
 
   const mongoQuery = conditions.length ? { $and: conditions } : {};
-  const skip       = (page - 1) * limit;
 
   const [items, total] = await Promise.all([
     QueueJobModel
       .find(mongoQuery)
-      .sort({ [sortBy]: sortOrder === "asc" ? 1 : -1 })
+      .sort({ [String(sortBy)]: sortOrder })
       .skip(skip)
       .limit(limit)
       .lean(),
@@ -95,7 +83,6 @@ const cancel = async (id: string) => {
     throw new CustomError("Job is already cancelled.", 409);
   }
 
-  // Remove from BullMQ if it is still there (best-effort — Redis may have purged it)
   await QueueUtil.remove(doc.recordId).catch(() => {});
 
   doc.status = QueueJobStatus.CANCELLED;
