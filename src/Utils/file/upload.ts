@@ -318,12 +318,42 @@ export class R2BucketUtils {
 
 /**
  * Generate a pre-signed R2 key without uploading anything.
- * Call this before creating the DB record so the key is ready,
- * then upload the actual file after the job is enqueued.
+ * Always UUID-based — keys are globally unique, never overwrite existing files.
  */
 export const generateR2Key = (folder: string, originalName: string): string => {
   const ext = path.extname(originalName).toLowerCase();
   return `${folder}/${uuidv4()}${ext}`;
+};
+
+export interface GenericUploadResult {
+  fileKey    : string;
+  fileUrl    : string;
+  mimeType   : string;
+  fileSize   : number;
+  originalName: string;
+}
+
+/**
+ * Upload a multer temp file to R2 under a guaranteed-unique key.
+ * The key is `${folder}/<uuid><ext>` — never overwrites, never versions.
+ * Deletes the temp file from disk after upload (success or failure).
+ */
+export const uploadGenericFile = async (
+  file  : Express.Multer.File,
+  folder: string,
+): Promise<GenericUploadResult> => {
+  const fileKey = generateR2Key(folder, file.originalname);
+  await uploadFileToR2(file.path, fileKey, file.mimetype);
+  const fileUrl = r2Config.customDomain
+    ? `https://${r2Config.customDomain}/${fileKey}`
+    : fileKey;
+  return {
+    fileKey,
+    fileUrl,
+    mimeType    : file.mimetype,
+    fileSize    : file.size,
+    originalName: file.originalname,
+  };
 };
 
 /**

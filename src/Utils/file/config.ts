@@ -58,3 +58,15 @@ export const generationUpload = multer({
     fileFilter: generationFileFilter,
     limits: { fileSize: 12 * 1024 * 1024 },
 });
+
+// ── Avatar upload — single image, 5 MB limit ──────────────────────────────
+const avatarFileFilter = (_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+    if (allowedMimes.includes(file.mimetype)) cb(null, true);
+    else cb(new CustomError("Avatar must be a JPEG, PNG, GIF, or WebP image", 400));
+};
+
+export const avatarUpload = multer({
+    storage,
+    fileFilter: avatarFileFilter,
+    limits    : { fileSize: 5 * 1024 * 1024 },
+});
