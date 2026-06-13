@@ -11,7 +11,7 @@ export interface IFileRecord {
   originalName: string;
   mimeType  : string;
   fileSize  : number;
-  uploadedBy: Types.ObjectId;
+  uploadedBy?: Types.ObjectId;
   ownerId  ?: Types.ObjectId;
   createdAt : Date;
   updatedAt : Date;

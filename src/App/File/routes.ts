@@ -1,11 +1,23 @@
 import { Router } from "express";
 import authenticate from "@/Middlewares/Auth";
+import apiKeyAuth from "@/Middlewares/ApiKey";
 import validateRequest from "@/Middlewares/validateRequest";
-import { fileUpload } from "@/Utils/file/config";
+import { fileUpload, createUpload } from "@/Utils/file/config";
+import { FileType } from "./const";
 import { FileController } from "./controller";
-import { uploadFileSchema } from "./validation";
+import { externalUploadSchema, uploadFileSchema } from "./validation";
 
 const fileRouter = Router();
+
+// ── External API upload — x-api-key auth, no JWT ─────────────────────────
+// Must be registered BEFORE the authenticate middleware below.
+fileRouter.post(
+  "/external-upload",
+  apiKeyAuth,
+  createUpload(FileType.GENERATION).single("file"),
+  validateRequest(externalUploadSchema),
+  FileController.externalUpload,
+);
 
 fileRouter.use(authenticate);
 

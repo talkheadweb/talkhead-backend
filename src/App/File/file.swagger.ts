@@ -36,6 +36,33 @@ const listParams: object[] = [
 ];
 
 export const filePaths = {
+  "/files/external-upload": {
+    ...post({
+      summary    : "Upload generated output file (external API)",
+      description: [
+        "Called by the external generation API after producing an output file.",
+        "Secured by `x-api-key` header — no user JWT required.",
+        "",
+        "Upload the generated video or audio file here first, then use the returned `fileUrl`",
+        "as the `outputUrl` in the callback request to `POST /api/v1/generations/:id/callback`.",
+        "",
+        "Accepts video (MP4, MOV, WebM, AVI, MPEG) and audio (MP3, WAV, M4A) up to 200 MB.",
+        "The file is stored in R2 under `generations/output/` and tracked as a FileRecord.",
+        "Provide `generationId` to link the file to its parent generation.",
+      ].join("\n"),
+      secured  : false,
+      body     : multipartBody({
+        required: ["file", "generationId"],
+        props   : {
+          file        : binary({ description: "Generated output file — video or audio, up to 200 MB" }),
+          generationId: str({ example: "664f1b2c3e4a5b6c7d8e9f00" }),
+          ownerId     : str({ example: "664f1b2c3e4a5b6c7d8e9f01" }),
+        },
+      }),
+      responses: { ...created("File uploaded.", fileRecordSchema), ...errors(400, 401, 403) },
+    }),
+  },
+
   "/files/upload": {
     ...post({
       summary   : "Upload a file",

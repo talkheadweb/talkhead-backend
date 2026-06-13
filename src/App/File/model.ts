@@ -13,7 +13,7 @@ const FileRecordSchema = new Schema<TFileRecordDocument>(
     originalName: { type: String, required: true },
     mimeType  : { type: String, required: true },
     fileSize  : { type: Number, required: true },
-    uploadedBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    uploadedBy: { type: Schema.Types.ObjectId, ref: "User", required: false },
     ownerId   : { type: Schema.Types.ObjectId, index: true, sparse: true },
   },
   { timestamps: true, versionKey: false },

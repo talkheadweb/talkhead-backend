@@ -6,7 +6,7 @@ import CustomError from "@/Utils/errors/customError.class";
 import { deleteFromR2, generateR2Key, getPresignedUrl, uploadFileToR2 } from "@/Utils/file/upload";
 import { isValidMongoID } from "@/Utils/validation/mongoose.validation";
 import FileRecordModel from "@/App/File/model";
-import { FileTypeConfig, FileTypeValues, TFileType } from "./const";
+import { FileType, FileTypeConfig, FileTypeValues, TFileType } from "./const";
 import {
   FileExtraFilterKeys,
   FileFilterKeys,
@@ -68,6 +68,44 @@ const track = async (
   });
 };
 
+// ── externalUpload: upload for external API — no user context ──────────────
+// Used by the /files/external-upload endpoint (x-api-key auth, no JWT).
+// Stores to R2 under generations/output/<uuid>.<ext> and creates a FileRecord
+// with ownerId set to the generationId. uploadedBy is not set.
+const externalUpload = async (
+  file        : Express.Multer.File,
+  generationId: string,
+  ownerId?    : string,
+): Promise<IFileRecord> => {
+  const folder  = `generations/output`;
+  const fileKey = generateR2Key(folder, file.originalname);
+
+  await uploadFileToR2(file.path, fileKey, file.mimetype);
+
+  const fileUrl = buildFileUrl(fileKey);
+
+  // ownerId takes precedence; fall back to generationId so every generation
+  // output is always linkable by its generation.
+  const resolvedOwnerId = ownerId ?? generationId;
+
+  return FileRecordModel.create({
+    type        : FileType.GENERATION,
+    folder,
+    fileKey,
+    fileUrl,
+    originalName: file.originalname,
+    mimeType    : file.mimetype,
+    fileSize    : file.size,
+    ownerId     : new Types.ObjectId(resolvedOwnerId),
+  });
+};
+
+// ── findOneByUrl: look up a FileRecord by fileUrl or fileKey ───────────────
+// Used by markCompleted to detect if the external API already uploaded the
+// output file via /files/external-upload, so we don't create a duplicate.
+const findOneByUrl = async (url: string): Promise<IFileRecord | null> =>
+  FileRecordModel.findOne({ $or: [{ fileUrl: url }, { fileKey: url }] }).lean();
+
 // ── deleteByOwner: remove all cascade-deletable FileRecords for an owner ───
 // Only types with deleteWithOwner:true in FileTypeConfig are affected.
 const deletableTypes: TFileType[] = FileTypeValues.filter(t => FileTypeConfig[t].deleteWithOwner);
@@ -109,7 +147,7 @@ const getById = async (id: string, uid: string, isAdmin: boolean): Promise<IFile
   if (!isValidMongoID(id)) throw new CustomError("Invalid file id.", 400);
   const record = await FileRecordModel.findById(id).lean();
   if (!record) throw new CustomError("File not found.", 404);
-  if (!isAdmin && record.uploadedBy.toString() !== uid) {
+  if (!isAdmin && record.uploadedBy?.toString() !== uid) {
     throw new CustomError("File not found.", 404);
   }
   return record;
@@ -169,7 +207,7 @@ const remove = async (id: string, uid: string, isAdmin: boolean): Promise<IFileR
   if (!isValidMongoID(id)) throw new CustomError("Invalid file id.", 400);
   const record = await FileRecordModel.findById(id).lean();
   if (!record) throw new CustomError("File not found.", 404);
-  if (!isAdmin && record.uploadedBy.toString() !== uid) {
+  if (!isAdmin && record.uploadedBy?.toString() !== uid) {
     throw new CustomError("File not found.", 404);
   }
   await FileRecordModel.deleteOne({ _id: id });
@@ -183,4 +221,4 @@ const buildFileUrl = (fileKey: string): string => {
   return domain ? `https://${domain}/${fileKey}` : fileKey;
 };
 
-export const FileService = { upload, track, deleteByOwner, deleteByKey, deleteByRef, getById, getPresignedUrlById, list, remove };
+export const FileService = { upload, externalUpload, track, findOneByUrl, deleteByOwner, deleteByKey, deleteByRef, getById, getPresignedUrlById, list, remove };

@@ -175,23 +175,31 @@ const markCompleted = async (recordId: string, outputUrl?: string): Promise<void
     { new: false, lean: true },   // return the pre-update doc so we have userId
   );
 
-  // Track the output file in FileRecord and store the ref (fire-and-forget — non-critical)
+  // Link or track the output file (fire-and-forget — non-critical)
+  // If the external API already uploaded via /files/external-upload we find the
+  // existing FileRecord rather than creating a duplicate.
   if (outputUrl && doc?.userId) {
-    const ext  = path.extname(outputUrl).toLowerCase();
-    const mime = videoMimeFromExt(ext) ?? "application/octet-stream";
-    FileService.track(String(doc.userId), {
-      type        : FileType.GENERATION,
-      fileKey     : outputUrl,
-      fileUrl     : outputUrl,
-      originalName: path.basename(outputUrl) || `output_${recordId}${ext}`,
-      mimeType    : mime,
-      fileSize    : 0,   // unknown — file lives on external service
-      ownerId     : recordId,
-    }).then(fileRecord => {
-      if (fileRecord?._id) {
-        GenerationModel.findByIdAndUpdate(recordId, { $set: { outputFile: fileRecord._id } }).catch(() => {});
+    (async () => {
+      const existing = await FileService.findOneByUrl(outputUrl);
+      if (existing?._id) {
+        await GenerationModel.findByIdAndUpdate(recordId, { $set: { outputFile: existing._id } });
+      } else {
+        const ext  = path.extname(outputUrl).toLowerCase();
+        const mime = videoMimeFromExt(ext) ?? "application/octet-stream";
+        const fileRecord = await FileService.track(String(doc!.userId), {
+          type        : FileType.GENERATION,
+          fileKey     : outputUrl,
+          fileUrl     : outputUrl,
+          originalName: path.basename(outputUrl) || `output_${recordId}${ext}`,
+          mimeType    : mime,
+          fileSize    : 0,
+          ownerId     : recordId,
+        });
+        if (fileRecord?._id) {
+          await GenerationModel.findByIdAndUpdate(recordId, { $set: { outputFile: fileRecord._id } });
+        }
       }
-    }).catch(() => {});
+    })().catch(() => {});
   }
 };
 

@@ -43,6 +43,16 @@ const uploadFile = catchAsync(async (req: Request, res: Response) => {
   sendResponse.success(res, { statusCode: 201, message: "File uploaded.", data: fileRecord, req });
 });
 
+// ── External upload — x-api-key protected, no user context ─────────────────
+// Used by the external API to upload the generated output file to R2.
+// The returned fileUrl should be sent back as outputUrl in the callback.
+const externalUpload = catchAsync(async (req: Request, res: Response) => {
+  if (!req.file) throw new CustomError("File is required.", 400);
+  const { generationId, ownerId } = req.body as { generationId: string; ownerId?: string };
+  const fileRecord = await FileService.externalUpload(req.file, generationId, ownerId);
+  sendResponse.success(res, { statusCode: 201, message: "File uploaded.", data: fileRecord, req });
+});
+
 // ── List ───────────────────────────────────────────────────────────────────
 const list = catchAsync(async (req: Request, res: Response) => {
   const isAdmin = req.user!.role === EUserRole.ADMIN;
@@ -72,4 +82,4 @@ const presigned = catchAsync(async (req: Request, res: Response) => {
   sendResponse.success(res, { statusCode: 200, message: "Presigned URL generated.", data: { url }, req });
 });
 
-export const FileController = { uploadFile, list, getOne, remove, presigned };
+export const FileController = { uploadFile, externalUpload, list, getOne, remove, presigned };

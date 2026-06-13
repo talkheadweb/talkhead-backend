@@ -69,6 +69,58 @@ or simply `200 OK` with an empty body — either is fine.
 
 ---
 
+## Step 1b — Upload the Output File (External API → Our Server)
+
+Before sending the callback, upload the generated output file to our storage. This keeps the file under our CDN and ensures proper tracking. The `fileUrl` you receive back is what you use as `outputUrl` in the callback.
+
+**Method:** `POST`
+
+**URL:** `{BACKEND_BASE_URL}/api/v1/files/external-upload`
+
+**Headers:**
+
+| Header | Value |
+|--------|-------|
+| `Content-Type` | `multipart/form-data` |
+| `x-api-key` | The shared secret — same key used for the callback |
+
+**Body:** `multipart/form-data`
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `file` | binary | ✅ | The generated output file — video or audio, up to 200 MB |
+| `generationId` | `string` | ✅ | The `recordId` from the trigger body — always used to link the file to its generation |
+| `ownerId` | `string` | ☐ optional | An alternative owner document ID. If provided, takes precedence over `generationId` as the `ownerId` on the file record. If omitted, `generationId` is used as the owner. |
+
+**Supported file types:** MP4, MOV, WebM, AVI, MPEG (video) · MP3, WAV, M4A (audio)
+
+**Size limit:** 200 MB
+
+**Example response:**
+
+```json
+{
+  "success": true,
+  "message": "File uploaded.",
+  "data": {
+    "_id": "664f1b2c3e4a5b6c7d8e9f10",
+    "type": "generation",
+    "folder": "generations/output",
+    "fileKey": "generations/output/550e8400-e29b-41d4-a716-446655440000.mp4",
+    "fileUrl": "https://cdn.yourdomain.com/generations/output/550e8400.mp4",
+    "originalName": "output.mp4",
+    "mimeType": "video/mp4",
+    "fileSize": 12582912
+  }
+}
+```
+
+Use `data.fileUrl` as the `outputUrl` in your callback (Step 2). Our server automatically detects that the file already exists in our storage and avoids creating a duplicate record.
+
+> **Fallback:** If you cannot use this endpoint and host the output file on your own CDN, you may still send any public URL as `outputUrl` in the callback. Our server will accept it and track it. However, uploading via this endpoint is preferred.
+
+---
+
 ## Step 2 — Callback Request (External API → Our Server)
 
 When your processing is complete — whether successful or not — send a `POST` request to the `callbackUrl` you received in the trigger.
@@ -178,8 +230,16 @@ Our server                              External API
     │  200 OK  { "accepted": true }         │
     │                                       │ ... processing takes N seconds ...
     │                                       │
+    │  POST /api/v1/files/external-upload   │
+    │  multipart: file=<output>, generationId=<recordId> │
+    │  x-api-key: <secret>                  │
+    │◄─────────────────────────────────────┤
+    │                                       │
+    │  201 Created { fileUrl: "https://cdn.../output.mp4" } │
+    │ ─────────────────────────────────────►│
+    │                                       │
     │  POST /api/v1/generations/:id/callback│
-    │  { success: true, outputUrl: "..." }  │
+    │  { success: true, outputUrl: fileUrl }│
     │  x-api-key: <secret>                  │
     │◄─────────────────────────────────────┤
     │                                       │
@@ -214,7 +274,9 @@ This is also passed directly in every trigger request as `callbackUrl` so you do
 - [ ] Read `recordId`, `callbackUrl`, and `payload` from the trigger body
 - [ ] Validate the incoming `x-api-key` header on your trigger endpoint
 - [ ] Process the generation job asynchronously
-- [ ] On completion, `POST` to the exact `callbackUrl` with `{ success, outputUrl? | message? }`
+- [ ] On completion, upload the output file to `POST /api/v1/files/external-upload` — include `x-api-key` and pass `generationId = recordId`
+- [ ] Use the returned `fileUrl` as `outputUrl` in the callback (or use your own CDN URL as fallback)
+- [ ] `POST` to the exact `callbackUrl` with `{ success: true, outputUrl }` or `{ success: false, message }`
 - [ ] Include the `x-api-key` header on your callback request
 - [ ] On our `5xx` response, retry the callback with backoff
 - [ ] On our `4xx` response, do not retry — fix the request body
