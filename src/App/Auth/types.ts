@@ -47,8 +47,12 @@ export type TUpdateProfileInput = {
   name?: string;
 };
 
-// Safe user shape — password never included
-export type TUserPublic = Omit<IUser, "password">;
+// Safe user shape — password never included.
+// profilePictureUrl is added at response time (presigned URL or external https://).
+// profilePictureKey always keeps the raw stored value (R2 key or external https://).
+export type TUserPublic = Omit<IUser, "password"> & {
+  profilePictureUrl?: string | null;
+};
 
 // ── Request body types (derived from Zod — single source of truth) ─────────
 export type TRegisterBody          = z.infer<typeof AuthValidation.registerZodSchema>["body"];

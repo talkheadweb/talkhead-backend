@@ -133,36 +133,41 @@ collection for easy cross-lookup.
 All persistence is delegated to the feature service's worker-callback methods.
 
 ```
-Every processor follows this lifecycle:
+Generation processor lifecycle (fire-and-forget trigger pattern):
 
-  1. featureService.markProcessing(recordId)
-  2. callApi(recordId, payload)       ← dev: mock response; prod: real HTTP call
-  3. response.success = true  → featureService.markCompleted(recordId, outputUrl)
-     response.success = false → featureService.markFailed(recordId, msg) + throw
-     network / HTTP error     → featureService.markFailed(recordId, msg) + throw
+  1. GenerationService.markProcessing(recordId)
+  2. POST trigger to external API — await only the HTTP acceptance (2xx)
+     dev:  skip real HTTP call (logged, no-op)
+     prod: POST QUEUE_EXTERNAL_API_URL with { recordId, callbackUrl, payload }
+  3. 2xx received → exit immediately (job is done from BullMQ's perspective)
+     non-2xx or network error → GenerationService.markFailed(recordId, msg) + throw
 
   throw causes BullMQ to schedule a retry (up to 3×, exponential backoff).
   After 3 failures the job is permanently failed and the `failed` event fires.
+
+  Completion (markCompleted) is NOT called by the processor.
+  It is called by POST /generations/:id/callback when the external API calls back.
+  The callback also emits a `generation:update` socket event to the user.
 ```
 
-### Dev vs prod API call
+### Dev vs prod trigger
 
-Each processor has an internal `callXxxApi` function that switches on `config.node_env`:
+The processor's `triggerExternalApi` function checks `config.node_env`:
 
 ```ts
-const callGenerationApi = async (recordId, payload): Promise<TJobResponse> => {
-  if (config.node_env !== ENodeEnv.PROD) {
-    // dev/test — no real HTTP call, return a deterministic mock
-    return { success: true, outputUrl: `https://cdn.example.com/outputs/${recordId}.mp4` };
-  }
-  // prod — call the real external endpoint
-  const res = await fetch(config.queue.external_api_url, { ... });
-  return res.json();
-};
+// dev — skip the real HTTP call; trigger the callback manually via the REST endpoint
+if (config.node_env !== ENodeEnv.PROD) {
+  log.info("Generation trigger — dev mode, skipping real HTTP call", { recordId });
+  return;
+}
+// prod — fire the trigger and await only HTTP acceptance
+const response = await fetch(config.queue.external_api_url, {
+  method : "POST",
+  headers: { "Content-Type": "application/json", "x-api-key": config.queue.api_key },
+  body   : JSON.stringify({ recordId, callbackUrl, payload }),
+});
+if (!response.ok) throw new Error(`External API trigger failed with ${response.status}`);
 ```
-
-The processor itself has no environment awareness — it just calls `callGenerationApi` and
-handles `{ success, outputUrl?, message? }`.
 
 ---
 
@@ -207,18 +212,28 @@ BullWorker `active` event → QueueJobModel: status = PROCESSING, startedAt
 
 handleGenerationJob(job)
   ├─ GenerationService.markProcessing(recordId)  → Generation: status = PROCESSING
-  ├─ callGenerationApi(recordId, payload)
-  │     dev  → mock { success: true, outputUrl: "cdn.example.com/..." }
-  │     prod → POST QUEUE_EXTERNAL_API_URL → await { success, outputUrl?, message? }
+  ├─ triggerExternalApi(recordId, payload)
+  │     dev  → no-op (log only — trigger callback manually for testing)
+  │     prod → POST QUEUE_EXTERNAL_API_URL { recordId, callbackUrl, payload }
+  │            await 2xx acceptance only — exits immediately (fire-and-forget)
   │
-  ├─ success=true
-  │     GenerationService.markCompleted(recordId, outputUrl)
-  │     → Generation: status = COMPLETED, outputUrl, completedAt
+  ├─ 2xx accepted → exit (BullMQ marks job completed)
   │
-  └─ success=false OR network error
+  └─ non-2xx OR network error
         GenerationService.markFailed(recordId, msg)
         → Generation: status = FAILED, errorMessage
         throw → BullMQ retries (attempt 2, then 3)
+
+POST /api/v1/generations/:id/callback  (called by external API, not by worker)
+  ├─ success=true
+  │     GenerationService.markCompleted(recordId, outputFileKey)
+  │     → Generation: status = COMPLETED, outputFileKey, completedAt
+  │     → socket emit `generation:update` { generationId, status, outputFileKey, outputUrl }
+  │
+  └─ success=false
+        GenerationService.markFailed(recordId, msg)
+        → Generation: status = FAILED, errorMessage
+        → socket emit `generation:update` { generationId, status, errorMessage }
 
 BullWorker `completed` event → QueueJobModel: status = COMPLETED, finishedAt
 BullWorker `failed` event    → QueueJobModel: status = FAILED, failedReason, finishedAt

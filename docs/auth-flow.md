@@ -349,8 +349,8 @@ clicks "Sign in with Google" using the same Gmail address:
 
 ### Profile picture from OAuth
 
-The Google profile picture URL is stored directly in `profilePicture` when the account
-is created. On every `GET /auth/me` call, `resolveProfilePictureUrl` handles the URL:
+The Google profile picture URL is stored directly in `profilePictureKey` when the account
+is created. On every `GET /auth/me` (and `login` / `updateProfile`), `resolveProfilePictureUrl` resolves it and the result is returned as `profilePictureUrl` in the response — `profilePictureKey` always keeps the raw stored value:
 
 | Stored value | Action |
 |---|---|

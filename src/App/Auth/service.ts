@@ -116,7 +116,7 @@ const login = async (payload: TLoginInput): Promise<TLoginResponse> => {
   log.info("User logged in", { userId: user._id });
 
   const publicUser = toPublicUser(user);
-  publicUser.profilePictureKey = await resolveProfilePictureUrl(user.profilePictureKey);
+  publicUser.profilePictureUrl = await resolveProfilePictureUrl(user.profilePictureKey);
   return { user: publicUser, accessToken, refreshToken };
 };
 
@@ -292,7 +292,7 @@ const claimSocialAuthCode = async (code: string): Promise<TSocialCodePayload> =>
 
 // ── Profile picture URL resolution ────────────────────────────────────────
 /**
- * Resolves the stored profilePicture value to a displayable URL.
+ * Resolves the stored profilePictureKey value to a displayable URL.
  *
  * If a customDomain is configured the stored value is already a full HTTPS URL.
  * Without a customDomain the stored value is a bare R2 object key — generate a
@@ -327,7 +327,7 @@ const getMe = async (userId: string): Promise<TUserPublic> => {
   const user = await UserModel.findById(userId);
   if (!user) throw new CustomError("User not found.", 404);
   const publicUser = toPublicUser(user);
-  publicUser.profilePictureKey = await resolveProfilePictureUrl(user.profilePictureKey);
+  publicUser.profilePictureUrl = await resolveProfilePictureUrl(user.profilePictureKey);
   return publicUser;
 };
 
@@ -395,7 +395,7 @@ const updateProfile = async (
 
   log.info("Profile updated", { userId, fields: Object.keys(updates) });
   const publicUser = toPublicUser(user);
-  publicUser.profilePictureKey = await resolveProfilePictureUrl(user.profilePictureKey);
+  publicUser.profilePictureUrl = await resolveProfilePictureUrl(user.profilePictureKey);
   return publicUser;
 };
 

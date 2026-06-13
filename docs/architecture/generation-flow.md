@@ -34,7 +34,7 @@ If files were uploaded, the controller immediately generates the R2 destination 
 
 ## Stage 3 — Creating the Database Record and Enqueueing
 
-`GenerationService.create()` runs next. It creates a `Generation` document in MongoDB with `status: "pending"` and the R2 keys (or the provided URL) stored as `avatarImage`.
+`GenerationService.create()` runs next. It creates a `Generation` document in MongoDB with `status: "pending"` and the R2 keys (or the provided URL) stored as `avatarImageKey`.
 
 Then `QueueUtil.enqueue()` is called. This does two things in order:
 
@@ -134,7 +134,7 @@ The user polls `GET /api/v1/generations/:id`. The `status` field moves through t
 |--------|---------|
 | `pending` | Job is queued, worker has not picked it up yet |
 | `processing` | Trigger sent to external API — awaiting callback |
-| `completed` | Output is ready — `outputUrl` is set |
+| `completed` | Output is ready — `outputFileKey` is set; response also includes computed `outputUrl` (presigned) |
 | `failed` | Trigger failed after all retries, or callback reported failure — `errorMessage` is set |
 | `cancelled` | User cancelled the job while it was still `pending` |
 
@@ -188,7 +188,7 @@ User
  │   └─ success=false
  │       └─ markFailed()                → Generation: failed, errorMessage
  │
- └─ GET /api/v1/generations/:id         → user polls for status / outputUrl
+ └─ GET /api/v1/generations/:id         → user polls for status / outputFileKey / outputUrl
 ```
 
 ---

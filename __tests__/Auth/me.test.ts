@@ -26,7 +26,7 @@ const authToken = jwt.sign(
 const userDoc = {
   _id: "user123", name: "Test User", email: "test@example.com",
   role: "user", isVerified: true, profilePictureKey: null,
-  toObject: () => ({ _id: "user123", name: "Test User", email: "test@example.com", role: "user", isVerified: true, profilePicture: null }),
+  toObject: () => ({ _id: "user123", name: "Test User", email: "test@example.com", role: "user", isVerified: true, profilePictureKey: null }),
 };
 
 describe("GET /auth/me", () => {

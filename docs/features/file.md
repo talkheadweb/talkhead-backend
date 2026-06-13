@@ -192,7 +192,7 @@ FileService.deleteByKey(fileKey).catch(() => {});
 
 ### Delete by URL or key — `FileService.deleteByRef()`
 
-Used when you only have the stored reference (e.g. `profilePicture` stored as an R2 key or external URL). Matches on `fileKey`.
+Used when you only have the stored reference (e.g. `profilePictureKey` stored as an R2 key or external URL). Matches on `fileKey`.
 
 ```ts
 FileService.deleteByRef(existingProfilePictureUrl).catch(() => {});

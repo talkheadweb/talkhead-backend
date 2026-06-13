@@ -56,8 +56,8 @@ The controller adds presigned URL fields alongside all R2 keys — the raw keys 
 
 | DB field | Always in response | Added alongside (when field present) |
 |----------|-------------------|--------------------------------------|
-| `avatarImage` (external URL) | `avatarImage` — unchanged | — |
-| `avatarImage` (R2 key) | `avatarImage` — raw key | `avatarImageUrl` — presigned URL (1 hr) |
+| `avatarImageKey` (external URL) | `avatarImageKey` — unchanged | — |
+| `avatarImageKey` (R2 key) | `avatarImageKey` — raw key | `avatarImageUrl` — presigned URL (1 hr) |
 | `inputAudioKey` | `inputAudioKey` — raw key | `inputAudioUrl` — presigned URL (1 hr) |
 | `outputFileKey` | `outputFileKey` — raw key | `outputUrl` — presigned URL (1 hr) |
 
@@ -185,7 +185,7 @@ When `success=true` and `outputFileKey` is provided, `markCompleted` stores the 
 
 1. **Status flow:** `pending` → `processing` → `completed` | `failed`; cancellable from `pending` only
 2. **Ownership:** users see and cancel only their own jobs; admins have full access
-3. **File rules:** `avatarImage` always required (file or URL); `inputAudio` required only when `inputType=audio`
+3. **File rules:** `avatarImageKey` always required (file upload or `avatarImageUrl` body field); `inputAudio` file required only when `inputType=audio`
 4. **voiceId always required:** every generation needs a voice ID — no default
 5. **File refs are async:** `avatarImageFile`, `inputAudioFile`, `outputFile` are set fire-and-forget after the main response — poll the GET endpoint if you need them
 6. **Presigned URLs in responses:** all R2 file keys are replaced with presigned URLs (1 hr TTL) before sending to the frontend — clients always receive working URLs
@@ -217,7 +217,7 @@ Controller:
   generate R2 keys (no upload yet)
   ↓
 GenerationService.create()
-  ├─ GenerationModel.create({ status: PENDING, avatarImage, inputAudioKey, voiceId, ... })
+  ├─ GenerationModel.create({ status: PENDING, avatarImageKey, inputAudioKey, voiceId, ... })
   ├─ QueueUtil.enqueue(recordId, QueueJobType.GENERATION, payload)
   │    ├─ QueueJobModel.create({ recordId, type, payload, status: PENDING })   ← MongoDB
   │    └─ bullQueue.add(recordId, data, { jobId: recordId })                  ← Redis/BullMQ
@@ -253,7 +253,11 @@ GenerationService.handleCallback()
   success=true  → markCompleted(id, outputFileKey)
                    → status = COMPLETED, outputFileKey, completedAt stored
                    → FileService.findByFileKey() → outputFile ref linked (fire-and-forget)
+                   → socket emit `generation:update` to user:&lt;userId&gt;
+                      { generationId, status: "completed", outputFileKey, outputUrl }
   success=false → markFailed(id, message) → status = FAILED, errorMessage
+                   → socket emit `generation:update` to user:&lt;userId&gt;
+                      { generationId, status: "failed", errorMessage }
 ```
 
 ---
@@ -267,7 +271,7 @@ src/App/Core/Generation/
                            TCreateGenerationBody, TCallbackBody,
                            GenerationFilterKeys, GenerationExtraFilterKeys
   model.ts              ← Mongoose schema
-                           R2 key fields: avatarImage, inputAudioKey, outputFileKey
+                           R2 key fields: avatarImageKey, inputAudioKey, outputFileKey
                            FileRecord refs: avatarImageFile, inputAudioFile, outputFile
   validation.ts         ← createGenerationSchema, updateGenerationSchema,
                            callbackGenerationSchema

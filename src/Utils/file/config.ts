@@ -73,8 +73,10 @@ export const avatarUpload = multer({
     limits    : { fileSize: 5 * 1024 * 1024 },
 });
 
-// ── General upload — accepts all mimes up to 50 MB (mime/size validated in controller) ─
-export const fileUpload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } });
+// ── General upload — 200 MB ceiling (mime and per-type size validated in controller) ──
+// 200 MB matches the largest FileTypeConfig.maxSizeBytes (generation video output).
+// The controller re-validates the per-type limit, so this is just the hard upper bound.
+export const fileUpload = multer({ storage, limits: { fileSize: 200 * 1024 * 1024 } });
 
 // ── Generic factory driven by FileTypeConfig ──────────────────────────────
 // Use for single-file uploads. For multi-field (generation), keep generationUpload.
