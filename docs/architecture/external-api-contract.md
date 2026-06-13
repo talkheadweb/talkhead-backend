@@ -40,7 +40,7 @@ When a generation job is ready, our server sends the following request.
   "payload"    : {
     "voiceId"     : "af_heart",
     "inputType"   : "text",
-    "avatarImage" : "generations/images/uuid.jpg",
+    "avatarImageKey": "generations/images/uuid.jpg",
     "inputText"   : "Say this calmly.",
     "inputAudioKey": null
   }
@@ -53,7 +53,7 @@ When a generation job is ready, our server sends the following request.
 | `callbackUrl` | `string` | The exact URL your server must POST the result to when done. |
 | `payload.voiceId` | `string` | The voice identifier to use for generation. |
 | `payload.inputType` | `"text" \| "audio"` | Determines which input field to use. |
-| `payload.avatarImage` | `string` | R2 file key or full URL of the reference avatar image. |
+| `payload.avatarImageKey` | `string` | R2 file key or full URL of the reference avatar image. |
 | `payload.inputText` | `string \| null` | Text input — present when `inputType` is `text`. |
 | `payload.inputAudioKey` | `string \| null` | R2 file key of the audio input — present when `inputType` is `audio`. |
 

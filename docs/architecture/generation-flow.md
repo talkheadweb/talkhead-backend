@@ -60,7 +60,7 @@ After sending the 201, the controller uploads the actual files to R2. This happe
 
 For each file uploaded, `FileService.track()` is called to create a `FileRecord` document in MongoDB — a central registry of every file in R2, linked to the generation via `ownerId`.
 
-Once tracking completes, the returned `FileRecord._id` values are stored on the `Generation` document as `refImageFile` and `audioFile` (fire-and-forget). They may not appear on the immediate 201 response but will be present on a subsequent `GET /api/v1/generations/:id`.
+Once tracking completes, the returned `FileRecord._id` values are stored on the `Generation` document as `avatarImageFile` and `inputAudioFile` (fire-and-forget). They may not appear on the immediate 201 response but will be present on a subsequent `GET /api/v1/generations/:id`.
 
 ---
 
@@ -92,7 +92,7 @@ The external API receives the trigger, processes the generation job asynchronous
 The callback body:
 
 ```json
-{ "success": true,  "outputUrl": "https://cdn.example.com/result.mp4" }
+{ "success": true,  "outputFileKey": "generations/output/uuid.mp4" }
 { "success": false, "message": "GPU out of memory" }
 ```
 
@@ -104,13 +104,12 @@ See [`docs/architecture/external-api-contract.md`](external-api-contract.md) for
 
 ## Stage 8a — Callback: Success
 
-`handleCallback()` in `GenerationService` calls `markCompleted(id, outputUrl)`:
+`handleCallback()` in `GenerationService` calls `markCompleted(id, outputFileKey)`:
 
-1. Updates `Generation` → `status: "completed"`, `outputUrl`, `completedAt`
-2. Fire-and-forget: `FileService.track()` creates a `FileRecord` for the output file
-3. Fire-and-forget: stores `FileRecord._id` as `Generation.outputFile`
+1. Updates `Generation` → `status: "completed"`, `outputFileKey`, `completedAt`
+2. Fire-and-forget: looks up the `FileRecord` by `outputFileKey` and links `FileRecord._id` as `Generation.outputFile`
 
-The user can now call `GET /api/v1/generations/:id` and see `status: "completed"` and the `outputUrl`.
+The user can now call `GET /api/v1/generations/:id` and see `status: "completed"`, `outputFileKey`, and a computed `outputUrl` presigned URL in the response.
 
 ---
 
@@ -161,7 +160,7 @@ User
  │  Controller (after response, async):
  │   ├─ uploadFileToR2()                  → files land in R2
  │   ├─ FileService.track()              → FileRecord created per file
- │   └─ GenerationService.setFileRefs()  → refImageFile / audioFile stored
+ │   └─ GenerationService.setFileRefs()  → avatarImageFile / inputAudioFile stored
  │
  │  BullMQ Worker (background):
  │   ├─ active event  → QueueJob: processing, startedAt
@@ -178,14 +177,13 @@ User
  │  External API (async — takes as long as it needs):
  │   ├─ processes job...
  │   └─ POST /api/v1/generations/:id/callback
- │       { success: true,  outputUrl: "..." }
+ │       { success: true,  outputFileKey: "generations/output/uuid.mp4" }
  │       { success: false, message:  "..." }
  │
  │  Callback handler (direct HTTP endpoint — no queue):
  │   ├─ success=true
- │   │   ├─ markCompleted()              → Generation: completed, outputUrl, completedAt
- │   │   ├─ FileService.track(output)   → FileRecord for output file
- │   │   └─ Generation.outputFile       → FileRecord._id stored
+ │   │   ├─ markCompleted()              → Generation: completed, outputFileKey, completedAt
+ │   │   └─ Generation.outputFile       → FileRecord._id linked by outputFileKey lookup
  │   │
  │   └─ success=false
  │       └─ markFailed()                → Generation: failed, errorMessage
@@ -202,7 +200,7 @@ src/App/Core/Generation/
   controller.ts     ← Stages 1–5: validation, DB create, enqueue, R2 upload, 201 response
   service.ts        ← markProcessing, markCompleted, markFailed, setFileRefs, handleCallback
   routes.ts         ← Route definitions including /callback (x-api-key, no JWT)
-  validation.ts     ← callbackGenerationSchema: success (bool), outputUrl?, message?
+  validation.ts     ← callbackGenerationSchema: success (bool), outputFileKey?, message?
 
 src/Config/queue/
   index.ts                           ← BullQueue, BullWorker class, QueueUtil.enqueue/remove
