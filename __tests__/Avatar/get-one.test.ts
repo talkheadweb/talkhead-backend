@@ -15,14 +15,14 @@ const ENDPOINT = "/api/v1/avatars";
 
 describe("GET /avatars/:id", () => {
   it("200 — returns avatar", async () => {
-    (AvatarModel.findOne as jest.Mock).mockReturnValue({ lean: jest.fn().mockResolvedValue(makeAvatarDoc()) });
+    (AvatarModel.findOne as jest.Mock).mockReturnValue({ populate: jest.fn().mockReturnThis(), lean: jest.fn().mockResolvedValue(makeAvatarDoc()) });
     const res = await request(app).get(`${ENDPOINT}/${VALID_ID}`).set("Authorization", `Bearer ${userToken}`);
     expect(res.status).toBe(200);
     expect(res.body.data._id).toBe(VALID_ID);
   });
 
   it("404 — not found (or inactive for non-admin)", async () => {
-    (AvatarModel.findOne as jest.Mock).mockReturnValue({ lean: jest.fn().mockResolvedValue(null) });
+    (AvatarModel.findOne as jest.Mock).mockReturnValue({ populate: jest.fn().mockReturnThis(), lean: jest.fn().mockResolvedValue(null) });
     const res = await request(app).get(`${ENDPOINT}/${VALID_ID}`).set("Authorization", `Bearer ${userToken}`);
     expect(res.status).toBe(404);
   });

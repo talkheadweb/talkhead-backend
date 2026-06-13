@@ -15,6 +15,9 @@ export interface IGeneration {
   outputUrl?    : string;              // set by Kokoro callback on success
   errorMessage? : string;              // set on failure
   completedAt?  : Date;
+  refImageFile? : Types.ObjectId;      // FileRecord ref for reference image (when uploaded)
+  audioFile?    : Types.ObjectId;      // FileRecord ref for input audio (when uploaded)
+  outputFile?   : Types.ObjectId;      // FileRecord ref for generation output
   createdAt     : Date;
   updatedAt     : Date;
 }

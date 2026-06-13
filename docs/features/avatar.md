@@ -4,6 +4,8 @@ Manages AI avatar images uploaded to Cloudflare R2. Admins upload and manage ava
 
 All file keys are UUID-based — uploads never overwrite or version existing files. Every upload produces a globally unique R2 key regardless of the original filename.
 
+File metadata (URL, size, mime type) is stored in a central `FileRecord` document and populated into the avatar response. The avatar document itself stores only `fileKey` (for direct R2 operations without a populate) and `file` (the `FileRecord` ObjectId reference).
+
 ---
 
 ## Endpoint Table
@@ -32,10 +34,6 @@ All file keys are UUID-based — uploads never overwrite or version existing fil
 | `title` | `string` | ✅ | 1–100 characters |
 | `slug` | `string` | ❌ | 1–100 chars, lowercase letters / digits / hyphens only. Auto-derived from `title` if omitted. |
 
-### File key guarantee
-
-The R2 key is always `avatars/<uuid><ext>` — the UUID is regenerated for every upload. Even if you upload the same file twice, two distinct keys are created. No overwrites, no versioning, no replacement.
-
 ### Slug auto-derivation
 
 If `slug` is not provided: `title` is lowercased, spaces become hyphens, special characters are stripped.
@@ -52,10 +50,14 @@ If `slug` is not provided: `title` is lowercased, spaces become hyphens, special
     "title": "Professional Narrator",
     "slug": "professional-narrator",
     "fileKey": "avatars/550e8400-e29b-41d4-a716-446655440000.jpg",
-    "fileUrl": "https://cdn.example.com/avatars/550e8400-e29b-41d4-a716-446655440000.jpg",
-    "mimeType": "image/jpeg",
-    "fileSize": 102400,
-    "originalName": "narrator.jpg",
+    "file": {
+      "_id": "664f1b2c3e4a5b6c7d8e9f03",
+      "fileUrl": "https://cdn.example.com/avatars/550e8400-e29b-41d4-a716-446655440000.jpg",
+      "mimeType": "image/jpeg",
+      "fileSize": 102400,
+      "originalName": "narrator.jpg",
+      "folder": "avatars"
+    },
     "isActive": true,
     "createdBy": "664f1b2c3e4a5b6c7d8e9f01",
     "createdAt": "2026-06-13T10:00:00.000Z",
@@ -96,6 +98,8 @@ If `slug` is not provided: `title` is lowercased, spaces become hyphens, special
 | `sortBy` | Field to sort by (default `createdAt`) |
 | `sortOrder` | `asc` or `desc` (default `desc`) |
 
+The `file` field is populated in list responses — each item includes full file metadata inline.
+
 ---
 
 ## Get One
@@ -104,6 +108,7 @@ If `slug` is not provided: `title` is lowercased, spaces become hyphens, special
 
 - Users: returns 404 if avatar is inactive (same as not found)
 - Admins: returns the avatar regardless of `isActive`
+- `file` field is populated — full file metadata included inline
 
 ---
 
@@ -119,7 +124,7 @@ If `slug` is not provided: `title` is lowercased, spaces become hyphens, special
 | `slug` | `string` | New slug (must be unique across all avatars) |
 | `isActive` | `boolean` | Activate or deactivate the avatar |
 
-At least one field is required.
+At least one field is required. The response includes the updated document with `file` populated.
 
 ---
 
@@ -127,7 +132,7 @@ At least one field is required.
 
 **DELETE** `/api/v1/avatars/:id`
 
-Hard-deletes the MongoDB record and removes the file from Cloudflare R2 (fire-and-forget — R2 deletion failure does not fail the request).
+Hard-deletes the MongoDB record and cascade-deletes the associated R2 file and `FileRecord` via `FileService.deleteByOwner()` (fire-and-forget — R2/FileRecord deletion failure does not fail the request).
 
 ---
 
@@ -137,13 +142,13 @@ Hard-deletes the MongoDB record and removes the file from Cloudflare R2 (fire-an
 2. **Immutable files:** file uploads are write-once; updating an avatar changes metadata only — the R2 file is never modified or replaced
 3. **Unique file keys:** every upload generates a fresh UUID key — `avatars/<uuid><ext>` — guaranteeing no two uploads share the same R2 path even with identical original filenames
 4. **Visibility:** inactive avatars are hidden from non-admins at both the list and get-one level
-5. **R2 cleanup on delete:** the R2 file is deleted asynchronously after the DB record is removed; the HTTP response does not wait for it
+5. **R2 + FileRecord cascade on delete:** when an avatar is deleted, all its associated `FileRecord` documents (matched by `ownerId`) are also deleted from MongoDB and R2 asynchronously
 
 ---
 
-## FileService
+## FileService Integration
 
-Avatar uploads use `FileService.upload()` from `src/App/File/service.ts`. Deletes use `FileService.deleteByKey()`.
+Avatar uploads use `FileService.upload()` which handles both the R2 upload and `FileRecord` creation in one call. Deletes use `FileService.deleteByOwner()` which cascade-deletes all linked `FileRecord` entries.
 
 ```ts
 import { FileService } from "@/App/File/service";
@@ -151,9 +156,10 @@ import { FileType } from "@/App/File/const";
 
 // In avatar controller create handler:
 const fileRecord = await FileService.upload(req.file, req, { type: FileType.AVATAR_IMAGE });
+// fileRecord._id and fileRecord.fileKey are stored on the avatar document
 
 // In avatar service remove handler:
-FileService.deleteByKey(doc.fileKey).catch(() => {});
+FileService.deleteByOwner(String(doc._id)).catch(() => {});
 ```
 
 See [`docs/features/file.md`](file.md) for full FileService API reference.
@@ -164,17 +170,17 @@ See [`docs/features/file.md`](file.md) for full FileService API reference.
 
 ```
 src/App/Avatar/
-  const.ts        ← AVATAR_R2_FOLDER constant
-  types.ts        ← IAvatar, AvatarSearchKeys, AvatarFilterKeys, TCreate/UpdateAvatarBody
-  model.ts        ← Mongoose schema
-  validation.ts   ← createAvatarSchema, updateAvatarSchema (Zod, wrapped for validateRequest)
-  service.ts      ← CRUD + slug derivation + R2 cleanup
-  controller.ts   ← HTTP handlers
-  routes.ts       ← Express router
+  const.ts          ← (empty — no module-specific constants needed post-refactor)
+  types.ts          ← IAvatar (file: ObjectId ref FileRecord, fileKey: string), search/filter keys, DTOs
+  model.ts          ← Mongoose schema (file → ref: "FileRecord", fileKey: String)
+  validation.ts     ← createAvatarSchema, updateAvatarSchema (Zod, wrapped for validateRequest)
+  service.ts        ← CRUD + slug derivation + populate("file") on reads + deleteByOwner on delete
+  controller.ts     ← HTTP handlers (multer → FileService.upload → AvatarService.create)
+  routes.ts         ← Express router
   avatar.swagger.ts ← OpenAPI definitions
 
 __tests__/Avatar/
-  _helpers.ts     ← Shared tokens + makeAvatarDoc factory
+  _helpers.ts       ← Shared tokens + makeAvatarDoc factory (file as populated object)
   create.test.ts
   list.test.ts
   get-one.test.ts

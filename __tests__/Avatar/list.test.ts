@@ -17,10 +17,11 @@ const ENDPOINT = "/api/v1/avatars";
 
 const mockFind = (docs: object[]) => {
   (AvatarModel.find as jest.Mock).mockReturnValue({
-    sort : jest.fn().mockReturnThis(),
-    skip : jest.fn().mockReturnThis(),
-    limit: jest.fn().mockReturnThis(),
-    lean : jest.fn().mockResolvedValue(docs),
+    sort    : jest.fn().mockReturnThis(),
+    skip    : jest.fn().mockReturnThis(),
+    limit   : jest.fn().mockReturnThis(),
+    populate: jest.fn().mockReturnThis(),
+    lean    : jest.fn().mockResolvedValue(docs),
   });
 };
 

@@ -6,21 +6,31 @@ import {
 
 const { post, get, patch, del } = withTag("Avatar");
 
-const avatarSchema = {
+const fileRecordRef = {
   type      : "object",
+  description: "Populated FileRecord — full file metadata from the File module",
   properties: {
-    _id         : { type: "string", example: "664f1b2c3e4a5b6c7d8e9f00" },
-    title       : { type: "string", example: "Professional Narrator" },
-    slug        : { type: "string", example: "professional-narrator" },
-    fileKey     : { type: "string", example: "avatars/550e8400-e29b-41d4-a716-446655440000.jpg" },
+    _id         : { type: "string", example: "664f1b2c3e4a5b6c7d8e9f03" },
     fileUrl     : { type: "string", example: "https://cdn.example.com/avatars/550e8400.jpg" },
     mimeType    : { type: "string", example: "image/jpeg" },
     fileSize    : { type: "integer", example: 102400 },
     originalName: { type: "string", example: "narrator.jpg" },
-    isActive    : { type: "boolean", example: true },
-    createdBy   : { type: "string", example: "664f1b2c3e4a5b6c7d8e9f01" },
-    createdAt   : { type: "string", format: "date-time" },
-    updatedAt   : { type: "string", format: "date-time" },
+    folder      : { type: "string", example: "avatars" },
+  },
+};
+
+const avatarSchema = {
+  type      : "object",
+  properties: {
+    _id      : { type: "string", example: "664f1b2c3e4a5b6c7d8e9f00" },
+    title    : { type: "string", example: "Professional Narrator" },
+    slug     : { type: "string", example: "professional-narrator" },
+    fileKey  : { type: "string", example: "avatars/550e8400-e29b-41d4-a716-446655440000.jpg" },
+    file     : fileRecordRef,
+    isActive : { type: "boolean", example: true },
+    createdBy: { type: "string", example: "664f1b2c3e4a5b6c7d8e9f01" },
+    createdAt: { type: "string", format: "date-time" },
+    updatedAt: { type: "string", format: "date-time" },
   },
 };
 

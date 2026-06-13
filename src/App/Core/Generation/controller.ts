@@ -50,7 +50,9 @@ const create = catchAsync(async (req: Request, res: Response) => {
     audioKey,
   });
 
-  // Upload files to R2 only after successful enqueue, then track each as a FileRecord
+  // Upload files to R2 after successful enqueue, track each as a FileRecord, store refs
+  const refIds: { refImageFile?: string; audioFile?: string } = {};
+
   const uploads: Promise<void>[] = [];
   if (refImageFile && refImageKey) {
     uploads.push(
@@ -63,7 +65,7 @@ const create = catchAsync(async (req: Request, res: Response) => {
           mimeType    : refImageFile.mimetype,
           fileSize    : refImageFile.size,
           ownerId     : String(result._id),
-        }).catch(() => {});
+        }).then(fr => { if (fr?._id) refIds.refImageFile = String(fr._id); }).catch(() => {});
       }),
     );
   }
@@ -78,11 +80,16 @@ const create = catchAsync(async (req: Request, res: Response) => {
           mimeType    : audioFile.mimetype,
           fileSize    : audioFile.size,
           ownerId     : String(result._id),
-        }).catch(() => {});
+        }).then(fr => { if (fr?._id) refIds.audioFile = String(fr._id); }).catch(() => {});
       }),
     );
   }
   await Promise.all(uploads);
+
+  // Persist file refs (fire-and-forget — non-blocking)
+  if (refIds.refImageFile || refIds.audioFile) {
+    GenerationService.setFileRefs(String(result._id), refIds).catch(() => {});
+  }
 
   sendResponse.success(res, { statusCode: 201, message: "Generation job created.", data: result, req });
 });

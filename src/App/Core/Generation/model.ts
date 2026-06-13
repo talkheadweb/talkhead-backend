@@ -51,6 +51,18 @@ const GenerationSchema = new Schema<TGenerationDocument>(
     completedAt: {
       type: Date,
     },
+    refImageFile: {
+      type: Schema.Types.ObjectId,
+      ref : "FileRecord",
+    },
+    audioFile: {
+      type: Schema.Types.ObjectId,
+      ref : "FileRecord",
+    },
+    outputFile: {
+      type: Schema.Types.ObjectId,
+      ref : "FileRecord",
+    },
   },
   {
     timestamps: true,

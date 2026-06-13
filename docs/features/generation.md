@@ -2,6 +2,8 @@
 
 Manages AI generation jobs powered by the Kokoro TTS engine. A user submits a request with a voice ID, reference image, and either text or audio input. The server creates a MongoDB record, enqueues a BullMQ job (also persisted in `QueueJob`), and the worker calls the external API and awaits the response directly — saving `outputUrl` on success or `errorMessage` on failure.
 
+Input files uploaded to R2 are tracked as `FileRecord` documents with `ownerId` set to the generation `_id`. The output file is tracked via `markCompleted` when the callback arrives. File reference ObjectIds (`refImageFile`, `audioFile`, `outputFile`) are stored on the generation document as optional links for cross-module traceability.
+
 ---
 
 ## Endpoint Table
@@ -38,12 +40,14 @@ Manages AI generation jobs powered by the Kokoro TTS engine. A user submits a re
 **Exactly one of** `referenceImageUrl` **or** `referenceImage` **must be provided.**
 When `inputType=audio`, `inputAudio` file is required; `inputText` is ignored.
 
-### Upload flow
+### Upload + file tracking flow
 
 1. Controller generates R2 file keys (UUID paths) — no upload yet
 2. MongoDB record created + BullMQ job enqueued + `QueueJob` record created
 3. Files uploaded to R2 **after** enqueue succeeds
-4. If enqueue fails → DB record rolled back; no files were uploaded (zero cleanup cost)
+4. Each uploaded file is tracked as a `FileRecord` (fire-and-forget)
+5. On successful track, `refImageFile` / `audioFile` ObjectId refs are stored on the generation document via `GenerationService.setFileRefs()` (also fire-and-forget)
+6. If enqueue fails → DB record rolled back; no files were uploaded (zero cleanup cost)
 
 ### Response (201)
 
@@ -60,11 +64,14 @@ When `inputType=audio`, `inputAudio` file is required; `inputText` is ignored.
     "voiceId": "af_heart",
     "referenceImage": "generations/images/uuid.jpg",
     "inputText": "Say this calmly.",
+    "refImageFile": "664f1b2c3e4a5b6c7d8e9f04",
     "createdAt": "2026-06-12T10:00:00.000Z",
     "updatedAt": "2026-06-12T10:00:00.000Z"
   }
 }
 ```
+
+> Note: `refImageFile`, `audioFile`, `outputFile` are populated asynchronously after the response returns — they may be `undefined` on the initial 201 response and set by the time you poll with a GET.
 
 ### Errors
 
@@ -130,7 +137,7 @@ Returns 403 if the requesting user is not the owner and not an admin.
 
 **DELETE** `/api/v1/generations/:id`
 
-Hard-deletes the MongoDB record. Does not attempt R2 file cleanup.
+Hard-deletes the MongoDB record. Does not attempt R2 file cleanup (files are tracked separately in `FileRecord` and can be cleaned up via the File module).
 
 ---
 
@@ -146,6 +153,8 @@ Called by the Kokoro backend when async processing finishes. **No JWT required**
 |-------|------|----------|-------------|
 | `success` | `boolean` | ✅ | `true` → completed, `false` → failed |
 | `outputUrl` | `string` (URL) | ❌ | Generated result URL (set when `success=true`) |
+
+When `success=true` and `outputUrl` is provided, `markCompleted` tracks the output as a `FileRecord` (fire-and-forget) and stores the resulting `FileRecord._id` in `generation.outputFile`.
 
 ### Errors
 
@@ -164,7 +173,7 @@ Called by the Kokoro backend when async processing finishes. **No JWT required**
 2. **Ownership:** users see and cancel only their own jobs; admins have full access
 3. **File rules:** `referenceImage` always required (file or URL); `inputAudio` required only when `inputType=audio`
 4. **voiceId always required:** every generation needs a Kokoro voice — no default
-5. **Request-response completion:** the worker POSTs to the external API and awaits `{ success, outputUrl?, message? }` directly — no separate callback webhook needed for normal completion
+5. **File refs are async:** `refImageFile`, `audioFile`, `outputFile` are set fire-and-forget after the main response — poll the GET endpoint if you need them
 6. **Queue persistence:** every enqueued job is also stored in the `QueueJob` MongoDB collection via `QueueUtil.enqueue` — durable even if Redis is flushed
 7. **Retry policy:** BullMQ retries a failed external API call 3× with exponential backoff (2 s, 4 s, 8 s)
 8. **Constants:** all status/type values come from `const.ts` — never use raw strings
@@ -179,7 +188,8 @@ The queue processor (`Config/queue/processors/generation.processor.ts`) never to
 |--------|-------------|--------------|
 | `GenerationService.markProcessing(recordId)` | Worker picks up job | `status → PROCESSING` |
 | `GenerationService.markFailed(recordId, msg)` | Kokoro API call fails | `status → FAILED` + `errorMessage` |
-| `GenerationService.markCompleted(id, url?)` | API response `success=true` | `status → COMPLETED` + `outputUrl` + `completedAt` |
+| `GenerationService.markCompleted(id, url?)` | API response `success=true` | `status → COMPLETED` + `outputUrl` + `completedAt` + tracks `outputFile` ref |
+| `GenerationService.setFileRefs(id, refs)` | After input file upload+track | Stores `refImageFile` / `audioFile` ObjectId refs |
 
 ---
 
@@ -198,7 +208,10 @@ GenerationService.create()
   │    └─ bullQueue.add(recordId, data, { jobId: recordId })                  ← Redis/BullMQ
   └─ GenerationModel.findByIdAndUpdate(doc._id, { queueJobId })
   ↓
-Controller uploads files to R2 (after successful enqueue)
+Controller:
+  upload referenceImage to R2 → FileService.track() → setFileRefs({ refImageFile })
+  upload inputAudio to R2    → FileService.track() → setFileRefs({ audioFile })
+  (all fire-and-forget after response)
 
 BullMQ Worker (bootstrap.ts):
   handleGenerationJob(job)
@@ -210,6 +223,8 @@ BullMQ Worker (bootstrap.ts):
   ├─ success=true
   │     GenerationService.markCompleted(recordId, outputUrl)
   │     → status = COMPLETED, outputUrl, completedAt
+  │     → FileService.track(userId, { type: GENERATION, ownerId: recordId, ... })
+  │     → GenerationModel.update({ outputFile: fileRecord._id })
   │
   └─ success=false OR network error
         GenerationService.markFailed(recordId, msg)
@@ -225,18 +240,16 @@ BullMQ Worker (bootstrap.ts):
 src/App/Core/Generation/
   const.ts              ← GenerationStatus, GenerationInputType (TEXT | AUDIO),
                            GenerationStatusValues, GenerationInputTypeValues
-  types.ts              ← IGeneration, TCreateGenerationBody, TCallbackBody,
+  types.ts              ← IGeneration (includes refImageFile?, audioFile?, outputFile? ObjectId refs),
+                           TCreateGenerationBody, TCallbackBody,
                            GenerationFilterKeys, GenerationExtraFilterKeys
-  model.ts              ← Mongoose schema (queueJobId ref → QueueJob)
+  model.ts              ← Mongoose schema (queueJobId, refImageFile, audioFile, outputFile refs → FileRecord)
   validation.ts         ← createGenerationSchema, updateGenerationSchema,
                            callbackGenerationSchema
-  service.ts            ← CRUD + queue integration + worker callbacks + handleCallback
-  controller.ts         ← HTTP handlers (file upload logic, callback handler)
+  service.ts            ← CRUD + queue integration + worker callbacks + handleCallback + setFileRefs
+  controller.ts         ← HTTP handlers (file upload logic, FileService.track, setFileRefs, callback handler)
   routes.ts             ← Express router — callback route uses apiKeyAuth (no JWT)
   generation.swagger.ts ← OpenAPI definitions
-
-src/App/Queue/
-  model.ts              ← QueueJob MongoDB model (persistent job store)
 
 src/Config/queue/
   const.ts              ← QueueJobType.GENERATION, QueueJobStatus

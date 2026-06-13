@@ -11,7 +11,7 @@ jest.mock("@/App/Avatar/model", () => ({
 
 jest.mock("@/App/File/service", () => ({
   FileService: {
-    deleteByKey: jest.fn().mockResolvedValue(undefined),
+    deleteByOwner: jest.fn().mockResolvedValue(undefined),
   },
 }));
 

@@ -3,6 +3,7 @@ import { IQueryItems } from "@/Utils/types/query.type";
 import { TFileType } from "./const";
 
 export interface IFileRecord {
+  _id       : Types.ObjectId;
   type      : TFileType;
   folder    : string;
   fileKey   : string;

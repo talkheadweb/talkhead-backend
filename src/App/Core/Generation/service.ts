@@ -175,7 +175,7 @@ const markCompleted = async (recordId: string, outputUrl?: string): Promise<void
     { new: false, lean: true },   // return the pre-update doc so we have userId
   );
 
-  // Track the output file in FileRecord (fire-and-forget — non-critical)
+  // Track the output file in FileRecord and store the ref (fire-and-forget — non-critical)
   if (outputUrl && doc?.userId) {
     const ext  = path.extname(outputUrl).toLowerCase();
     const mime = videoMimeFromExt(ext) ?? "application/octet-stream";
@@ -187,6 +187,10 @@ const markCompleted = async (recordId: string, outputUrl?: string): Promise<void
       mimeType    : mime,
       fileSize    : 0,   // unknown — file lives on external service
       ownerId     : recordId,
+    }).then(fileRecord => {
+      if (fileRecord?._id) {
+        GenerationModel.findByIdAndUpdate(recordId, { $set: { outputFile: fileRecord._id } }).catch(() => {});
+      }
     }).catch(() => {});
   }
 };
@@ -204,6 +208,19 @@ const videoMimeFromExt = (ext: string): string | undefined => {
     ".m4a" : "audio/x-m4a",
   };
   return map[ext];
+};
+
+// ── Set file refs (called after upload, fire-and-forget) ──────────────────
+const setFileRefs = async (
+  recordId    : string,
+  refs: { refImageFile?: string; audioFile?: string },
+): Promise<void> => {
+  const updates: Record<string, unknown> = {};
+  if (refs.refImageFile) updates.refImageFile = refs.refImageFile;
+  if (refs.audioFile)    updates.audioFile    = refs.audioFile;
+  if (Object.keys(updates).length) {
+    await GenerationModel.findByIdAndUpdate(recordId, { $set: updates });
+  }
 };
 
 const markFailed = async (recordId: string, errorMessage: string): Promise<void> => {
@@ -234,6 +251,7 @@ export const GenerationService = {
   cancel,
   remove,
   handleCallback,
+  setFileRefs,
   // Worker callbacks — called exclusively by the queue processor
   markProcessing,
   markCompleted,

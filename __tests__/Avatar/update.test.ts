@@ -16,7 +16,7 @@ const ENDPOINT = `/api/v1/avatars/${VALID_ID}`;
 
 describe("PATCH /avatars/:id", () => {
   beforeEach(() => {
-    (AvatarModel.findByIdAndUpdate as jest.Mock).mockReturnValue({ lean: jest.fn().mockResolvedValue(makeAvatarDoc()) });
+    (AvatarModel.findByIdAndUpdate as jest.Mock).mockReturnValue({ populate: jest.fn().mockReturnThis(), lean: jest.fn().mockResolvedValue(makeAvatarDoc()) });
     (AvatarModel.findOne as jest.Mock).mockReturnValue({ lean: jest.fn().mockResolvedValue(null) });
   });
 
@@ -54,7 +54,7 @@ describe("PATCH /avatars/:id", () => {
   });
 
   it("404 — not found", async () => {
-    (AvatarModel.findByIdAndUpdate as jest.Mock).mockReturnValue({ lean: jest.fn().mockResolvedValue(null) });
+    (AvatarModel.findByIdAndUpdate as jest.Mock).mockReturnValue({ populate: jest.fn().mockReturnThis(), lean: jest.fn().mockResolvedValue(null) });
     const res = await request(app)
       .patch(ENDPOINT)
       .set("Authorization", `Bearer ${adminToken}`)

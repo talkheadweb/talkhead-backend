@@ -13,6 +13,8 @@ import {
   TUpdateAvatarBody,
 } from "./types";
 
+const FILE_POPULATE = "fileUrl mimeType fileSize originalName folder";
+
 // Derive a URL-safe slug from a title string
 const toSlug = (title: string): string =>
   title
@@ -34,15 +36,12 @@ const create = async (
   if (existing) throw new CustomError("An avatar with this slug already exists.", 409);
 
   return AvatarModel.create({
-    title       : body.title,
+    title    : body.title,
     slug,
-    fileKey     : fileRecord.fileKey,
-    fileUrl     : fileRecord.fileUrl,
-    mimeType    : fileRecord.mimeType,
-    fileSize    : fileRecord.fileSize,
-    originalName: fileRecord.originalName,
-    isActive    : true,
-    createdBy   : new Types.ObjectId(userId),
+    file     : fileRecord._id,
+    fileKey  : fileRecord.fileKey,
+    isActive : true,
+    createdBy: new Types.ObjectId(userId),
   });
 };
 
@@ -55,7 +54,6 @@ const list = async (query: TListAvatarsPayload, isAdmin: boolean) => {
 
   const conditions: Record<string, unknown>[] = [];
 
-  // Non-admins can only see active avatars
   if (!isAdmin) conditions.push({ isActive: true });
 
   if (search) {
@@ -80,6 +78,7 @@ const list = async (query: TListAvatarsPayload, isAdmin: boolean) => {
       .sort({ [String(sortBy)]: sortOrder })
       .skip(skip)
       .limit(limit)
+      .populate("file", FILE_POPULATE)
       .lean(),
     AvatarModel.countDocuments(mongoQuery),
   ]);
@@ -90,7 +89,7 @@ const list = async (query: TListAvatarsPayload, isAdmin: boolean) => {
 // ── Get one ────────────────────────────────────────────────────────────────
 const getById = async (id: string, isAdmin: boolean) => {
   const filter = isAdmin ? { _id: id } : { _id: id, isActive: true };
-  const doc = await AvatarModel.findOne(filter).lean();
+  const doc = await AvatarModel.findOne(filter).populate("file", FILE_POPULATE).lean();
   if (!doc) throw new CustomError("Avatar not found.", 404);
   return doc;
 };
@@ -106,7 +105,7 @@ const update = async (id: string, body: TUpdateAvatarBody) => {
     id,
     { $set: body },
     { new: true },
-  ).lean();
+  ).populate("file", FILE_POPULATE).lean();
 
   if (!doc) throw new CustomError("Avatar not found.", 404);
   return doc;
@@ -116,8 +115,8 @@ const update = async (id: string, body: TUpdateAvatarBody) => {
 const remove = async (id: string) => {
   const doc = await AvatarModel.findByIdAndDelete(id).lean();
   if (!doc) throw new CustomError("Avatar not found.", 404);
-  // Clean up R2 file and FileRecord (non-critical — don't throw if it fails)
-  FileService.deleteByKey(doc.fileKey).catch(() => {});
+  // Cascade-delete R2 file + FileRecord via ownerId
+  FileService.deleteByOwner(String(doc._id)).catch(() => {});
   return doc;
 };
 
