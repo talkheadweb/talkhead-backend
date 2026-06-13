@@ -59,6 +59,24 @@ describe("POST /generations/:id/callback", () => {
     );
   });
 
+  it("200 — success=false with message stores the provided error message", async () => {
+    const res = await request(app)
+      .post(`${ENDPOINT}/${mockGenId}/callback`)
+      .set(apiKey())
+      .send({ success: false, message: "GPU out of memory" });
+
+    expect(res.status).toBe(200);
+    expect(MockModel.findByIdAndUpdate).toHaveBeenCalledWith(
+      mockGenId,
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          status      : GenerationStatus.FAILED,
+          errorMessage: "GPU out of memory",
+        }),
+      }),
+    );
+  });
+
   // ── Validation ─────────────────────────────────────────────────────────────
 
   it("400 — missing success field", async () => {

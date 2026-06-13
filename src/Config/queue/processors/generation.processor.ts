@@ -1,11 +1,15 @@
 /**
- * Generation job processor.
+ * Generation job processor — fire-and-forget trigger.
  *
  * Flow:
  *   1. markProcessing(recordId)
- *   2. callGenerationApi(payload) — real HTTP in prod, mock response in dev
- *   3. success=true  → markCompleted(recordId, outputUrl)
- *      success=false → markFailed(recordId, message) + throw (BullMQ retries)
+ *   2. POST trigger to external API — await only HTTP acceptance (2xx), then exit
+ *   3. External API processes asynchronously and calls back to
+ *      POST /api/v1/generations/:recordId/callback when done
+ *
+ * If the trigger HTTP call fails (non-2xx or network error):
+ *   - markFailed(recordId, message)
+ *   - throw → BullMQ retries up to 3× with exponential backoff
  *
  * Rule: NO direct DB operations here.
  * All persistence is delegated to GenerationService worker-callback methods.
@@ -20,42 +24,36 @@ import type { TQueueJobData } from "../types";
 
 const log = LogService.APPLICATION;
 
-type TJobResponse = {
-  success  : boolean;
-  outputUrl?: string;
-  message? : string;
-};
+// ── Trigger ────────────────────────────────────────────────────────────────
+// Sends the job payload to the external API and returns as soon as it is
+// accepted (2xx). Does NOT wait for the actual generation to complete.
+// The external API must call back to callbackUrl when processing finishes.
 
-// ── API caller — switches on environment ───────────────────────────────────
-
-const callGenerationApi = async (
+const triggerExternalApi = async (
   recordId: string,
   payload : Record<string, unknown>,
-): Promise<TJobResponse> => {
-  // Dev: return a mock response — no real HTTP call
+): Promise<void> => {
   if (config.node_env !== ENodeEnv.PROD) {
-    return {
-      success  : true,
-      outputUrl: `https://cdn.example.com/outputs/${recordId}.mp4`,
-    };
+    // Dev: skip real HTTP — trigger the callback manually via the callback endpoint
+    log.info("Generation trigger — dev mode, skipping real HTTP call", { recordId });
+    return;
   }
 
-  // Prod: call the real external endpoint
+  const callbackUrl = `${config.backend_base_url}/api/v1/generations/${recordId}/callback`;
+
   const response = await fetch(config.queue.external_api_url, {
     method : "POST",
     headers: {
       "Content-Type": "application/json",
       "x-api-key"   : config.queue.api_key,
     },
-    body: JSON.stringify({ recordId, payload }),
+    body: JSON.stringify({ recordId, callbackUrl, payload }),
   });
 
   if (!response.ok) {
     const text = await response.text().catch(() => "unknown error");
-    throw new Error(`External API responded with ${response.status}: ${text}`);
+    throw new Error(`External API trigger failed with ${response.status}: ${text}`);
   }
-
-  return response.json() as Promise<TJobResponse>;
 };
 
 // ── Processor ──────────────────────────────────────────────────────────────
@@ -64,25 +62,16 @@ export const handleGenerationJob = async (job: Job<TQueueJobData>): Promise<void
   const { recordId, payload } = job.data;
 
   await GenerationService.markProcessing(recordId);
-  log.info("Generation job processing", { recordId, jobId: job.id });
+  log.info("Generation job — triggering external API", { recordId, jobId: job.id });
 
-  let result: TJobResponse;
   try {
-    result = await callGenerationApi(recordId, payload);
+    await triggerExternalApi(recordId, payload);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "External API call failed";
+    const msg = err instanceof Error ? err.message : "Failed to trigger external API";
     await GenerationService.markFailed(recordId, msg);
-    log.error("Generation job — API error", { recordId, error: msg });
-    throw err;   // BullMQ retries up to 3×
+    log.error("Generation job — trigger failed", { recordId, error: msg });
+    throw err;  // BullMQ retries up to 3×
   }
 
-  if (result.success) {
-    await GenerationService.markCompleted(recordId, result.outputUrl);
-    log.info("Generation job completed", { recordId, outputUrl: result.outputUrl });
-  } else {
-    const msg = result.message ?? "External service reported failure";
-    await GenerationService.markFailed(recordId, msg);
-    log.warn("Generation job failed via API response", { recordId, msg });
-    throw new Error(msg);   // BullMQ retries
-  }
+  log.info("Generation job — trigger accepted, awaiting callback", { recordId, jobId: job.id });
 };

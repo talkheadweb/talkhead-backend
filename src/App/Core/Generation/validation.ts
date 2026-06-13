@@ -36,5 +36,6 @@ export const callbackGenerationSchema = z.object({
   body: z.object({
     success  : z.boolean({ required_error: "success is required" }),
     outputUrl: z.string().url().optional(),
+    message  : z.string().optional(),
   }),
 });

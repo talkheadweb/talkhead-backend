@@ -238,7 +238,7 @@ const handleCallback = async (id: string, body: TCallbackBody): Promise<void> =>
     await markCompleted(id, body.outputUrl);
     LogService.APPLICATION.info("Generation completed via callback", { recordId: id });
   } else {
-    await markFailed(id, "External API processing did not succeed.");
+    await markFailed(id, body.message ?? "External API processing did not succeed.");
     LogService.APPLICATION.warn("Generation failed via callback", { recordId: id });
   }
 };

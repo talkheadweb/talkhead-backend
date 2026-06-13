@@ -162,13 +162,15 @@ export const generationPaths = {
         "Called by the external API when processing finishes. " +
         "Secured by x-api-key header (not a user JWT). " +
         "success=true sets status to completed and stores outputUrl. " +
-        "success=false sets status to failed.",
+        "success=false sets status to failed — include message with the failure reason. " +
+        "See docs/architecture/external-api-contract.md for the full integration spec.",
       secured  : false,
       body     : jsonBody({
         required: ["success"],
         props   : {
           success  : { type: "boolean", example: true },
-          outputUrl: str({ example: "https://cdn.example.com/result.mp3" }),
+          outputUrl: str({ example: "https://cdn.example.com/result.mp4" }),
+          message  : str({ example: "GPU out of memory" }),
         },
       }),
       responses: {

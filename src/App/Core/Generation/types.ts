@@ -38,6 +38,7 @@ export type TCreateGenerationBody = {
 export type TCallbackBody = {
   success  : boolean;
   outputUrl?: string;
+  message  ?: string;   // error detail when success=false
 };
 
 export type TListGenerationsPayload = IQueryItems<Partial<IGeneration>>;
