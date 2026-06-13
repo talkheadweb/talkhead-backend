@@ -34,7 +34,7 @@ export const FileTypeConfig: Record<TFileType, TFileTypeConfig> = {
       "audio/mpeg", "audio/wav", "audio/x-wav", "audio/mp4", "audio/x-m4a",
       "video/mp4", "video/mpeg", "video/quicktime", "video/webm", "video/x-msvideo",
     ],
-    maxSizeBytes   : 50 * 1024 * 1024,  // 50 MB to accommodate video output
+    maxSizeBytes   : 200 * 1024 * 1024,  // 200 MB to accommodate video output
     deleteWithOwner: true,
   },
 };

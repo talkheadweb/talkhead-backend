@@ -13,7 +13,7 @@ import type { IGeneration, TCallbackBody, TCreateGenerationBody, TListGeneration
 import { GenerationFilterKeys as FilterKeys, GenerationSearchKeys as SearchKeys } from "./types";
 
 type TFileKeys = {
-  refImageKey?: string;   // pre-generated R2 key for referenceImage file upload
+  refImageKey?: string;   // pre-generated R2 key for avatarImage file upload
   audioKey?   : string;   // pre-generated R2 key for inputAudio file upload
 };
 
@@ -23,7 +23,7 @@ type TFileKeys = {
 // If enqueue fails the DB record is rolled back here — no file cleanup needed
 // because files are uploaded only after this returns.
 const create = async (userId: string, body: TCreateGenerationBody, keys: TFileKeys) => {
-  const referenceImage = keys.refImageKey ?? body.referenceImageUrl!;
+  const avatarImage = keys.refImageKey ?? body.avatarImageUrl!;
   const inputAudio     = keys.audioKey;
 
   const doc = await GenerationModel.create({
@@ -31,7 +31,7 @@ const create = async (userId: string, body: TCreateGenerationBody, keys: TFileKe
     status        : GenerationStatus.PENDING,
     inputType     : body.inputType,
     voiceId       : body.voiceId,
-    referenceImage,
+    avatarImage,
     inputText     : body.inputText,
     inputAudio,
   });
@@ -44,7 +44,7 @@ const create = async (userId: string, body: TCreateGenerationBody, keys: TFileKe
         userId,
         voiceId       : body.voiceId,
         inputType     : body.inputType,
-        referenceImage,
+        avatarImage,
         inputText     : body.inputText,
         inputAudio,
       },

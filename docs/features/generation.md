@@ -33,11 +33,11 @@ Input files uploaded to R2 are tracked as `FileRecord` documents with `ownerId` 
 | `inputType` | `"text" \| "audio"` | ✅ | Determines which input field is used |
 | `voiceId` | `string` | ✅ | Kokoro voice ID (e.g. `af_heart`) |
 | `inputText` | `string` (max 5000) | Required if `inputType=text` | Text to synthesise |
-| `referenceImageUrl` | `string` (URL) | Required if no `referenceImage` file | Reference image as URL |
-| `referenceImage` | file | Required if no `referenceImageUrl` | JPEG/PNG, max **5 MB** |
+| `avatarImageUrl` | `string` (URL) | Required if no `avatarImage` file | Reference image as URL |
+| `avatarImage` | file | Required if no `avatarImageUrl` | JPEG/PNG, max **5 MB** |
 | `inputAudio` | file | Required if `inputType=audio` | MP3/WAV/M4A, max **12 MB** |
 
-**Exactly one of** `referenceImageUrl` **or** `referenceImage` **must be provided.**
+**At least one of** `avatarImageUrl` **or** `avatarImage` **must be provided.** If both are sent, the file upload takes precedence and the URL is ignored.
 When `inputType=audio`, `inputAudio` file is required; `inputText` is ignored.
 
 ### Upload + file tracking flow
@@ -62,7 +62,7 @@ When `inputType=audio`, `inputAudio` file is required; `inputText` is ignored.
     "status": "pending",
     "inputType": "text",
     "voiceId": "af_heart",
-    "referenceImage": "generations/images/uuid.jpg",
+    "avatarImage": "generations/images/uuid.jpg",
     "inputText": "Say this calmly.",
     "refImageFile": "664f1b2c3e4a5b6c7d8e9f04",
     "createdAt": "2026-06-12T10:00:00.000Z",
@@ -77,7 +77,7 @@ When `inputType=audio`, `inputAudio` file is required; `inputText` is ignored.
 
 | Code | Reason |
 |------|--------|
-| 400 | Missing `referenceImage` / `referenceImageUrl`, missing `voiceId`, missing `inputText` when `inputType=text`, missing `inputAudio` when `inputType=audio`, invalid enum |
+| 400 | Missing `avatarImage` / `avatarImageUrl`, missing `voiceId`, missing `inputText` when `inputType=text`, missing `inputAudio` when `inputType=audio`, invalid enum |
 | 401 | No / invalid token |
 
 ---
@@ -171,7 +171,7 @@ When `success=true` and `outputUrl` is provided, `markCompleted` tracks the outp
 
 1. **Status flow:** `pending` → `processing` → `completed` | `failed`; cancellable from `pending` only
 2. **Ownership:** users see and cancel only their own jobs; admins have full access
-3. **File rules:** `referenceImage` always required (file or URL); `inputAudio` required only when `inputType=audio`
+3. **File rules:** `avatarImage` always required (file or URL); `inputAudio` required only when `inputType=audio`
 4. **voiceId always required:** every generation needs a Kokoro voice — no default
 5. **File refs are async:** `refImageFile`, `audioFile`, `outputFile` are set fire-and-forget after the main response — poll the GET endpoint if you need them
 6. **Queue persistence:** every enqueued job is also stored in the `QueueJob` MongoDB collection via `QueueUtil.enqueue` — durable even if Redis is flushed
@@ -202,14 +202,14 @@ Controller:
   generate R2 keys (no upload yet)
   ↓
 GenerationService.create()
-  ├─ GenerationModel.create({ status: PENDING, referenceImage, voiceId, ... })
+  ├─ GenerationModel.create({ status: PENDING, avatarImage, voiceId, ... })
   ├─ QueueUtil.enqueue(recordId, QueueJobType.GENERATION, payload)
   │    ├─ QueueJobModel.create({ recordId, type, payload, status: PENDING })   ← MongoDB
   │    └─ bullQueue.add(recordId, data, { jobId: recordId })                  ← Redis/BullMQ
   └─ GenerationModel.findByIdAndUpdate(doc._id, { queueJobId })
   ↓
 Controller:
-  upload referenceImage to R2 → FileService.track() → setFileRefs({ refImageFile })
+  upload avatarImage to R2 → FileService.track() → setFileRefs({ refImageFile })
   upload inputAudio to R2    → FileService.track() → setFileRefs({ audioFile })
   (all fire-and-forget after response)
 

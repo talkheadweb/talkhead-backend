@@ -41,12 +41,12 @@ export const upload = multer({
     }
 });
 
-// ── Generation upload — referenceImage (image) + inputAudio (audio) ────────
+// ── Generation upload — avatarImage (image) + inputAudio (audio) ────────
 // Global limit is 12 MB (audio max); image size (5 MB) is checked in the controller.
 const generationFileFilter = (_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-    if (file.fieldname === 'referenceImage') {
+    if (file.fieldname === 'avatarImage') {
         if (allowedGenerationImageMimes.includes(file.mimetype)) cb(null, true);
-        else cb(new CustomError('referenceImage must be a JPEG or PNG file', 400));
+        else cb(new CustomError('avatarImage must be a JPEG or PNG file', 400));
     } else if (file.fieldname === 'inputAudio') {
         if (allowedGenerationAudioMimes.includes(file.mimetype)) cb(null, true);
         else cb(new CustomError('inputAudio must be an MP3, WAV, or M4A file', 400));

@@ -26,7 +26,7 @@ const makeDoc = (overrides = {}) => ({
   status        : GenerationStatus.PENDING,
   inputType     : GenerationInputType.TEXT,
   voiceId       : "af_heart",
-  referenceImage: "generations/images/mock-key.jpg",
+  avatarImage: "generations/images/mock-key.jpg",
   inputText     : "Say this calmly.",
   save          : jest.fn().mockResolvedValue(undefined),
   ...overrides,
@@ -45,21 +45,21 @@ describe("POST /generations", () => {
 
   // ── Happy paths ────────────────────────────────────────────────────────────
 
-  it("201 — text job with referenceImageUrl (URL path, no file upload)", async () => {
+  it("201 — text job with avatarImageUrl (URL path, no file upload)", async () => {
     const res = await request(app)
       .post(ENDPOINT)
       .set(auth())
       .field("inputType",        GenerationInputType.TEXT)
       .field("voiceId",          "af_heart")
       .field("inputText",        "Say this calmly.")
-      .field("referenceImageUrl","https://example.com/ref.jpg");
+      .field("avatarImageUrl","https://example.com/ref.jpg");
 
     expect(res.status).toBe(201);
     expect(res.body.data).toMatchObject({ status: GenerationStatus.PENDING });
     expect(MockModel.create).toHaveBeenCalledTimes(1);
   });
 
-  it("201 — text job with referenceImage file upload", async () => {
+  it("201 — text job with avatarImage file upload", async () => {
     const fakeImage = Buffer.alloc(100, 0xff);
     const res = await request(app)
       .post(ENDPOINT)
@@ -67,20 +67,20 @@ describe("POST /generations", () => {
       .field("inputType", GenerationInputType.TEXT)
       .field("voiceId",   "af_heart")
       .field("inputText", "Say this.")
-      .attach("referenceImage", fakeImage, { filename: "ref.jpg", contentType: "image/jpeg" });
+      .attach("avatarImage", fakeImage, { filename: "ref.jpg", contentType: "image/jpeg" });
 
     expect(res.status).toBe(201);
     expect(MockModel.create).toHaveBeenCalledTimes(1);
   });
 
-  it("201 — audio job with referenceImageUrl + inputAudio file", async () => {
+  it("201 — audio job with avatarImageUrl + inputAudio file", async () => {
     const fakeAudio = Buffer.alloc(100, 0xab);
     const res = await request(app)
       .post(ENDPOINT)
       .set(auth())
       .field("inputType",         GenerationInputType.AUDIO)
       .field("voiceId",           "af_heart")
-      .field("referenceImageUrl", "https://example.com/ref.jpg")
+      .field("avatarImageUrl", "https://example.com/ref.jpg")
       .attach("inputAudio", fakeAudio, { filename: "clip.mp3", contentType: "audio/mpeg" });
 
     expect(res.status).toBe(201);
@@ -89,7 +89,7 @@ describe("POST /generations", () => {
 
   // ── Validation failures ────────────────────────────────────────────────────
 
-  it("400 — missing referenceImage (no file and no referenceImageUrl)", async () => {
+  it("400 — missing avatarImage (no file and no avatarImageUrl)", async () => {
     const res = await request(app)
       .post(ENDPOINT)
       .set(auth())
@@ -106,7 +106,7 @@ describe("POST /generations", () => {
       .set(auth())
       .field("inputType",         GenerationInputType.TEXT)
       .field("inputText",         "Hello.")
-      .field("referenceImageUrl", "https://example.com/ref.jpg");
+      .field("avatarImageUrl", "https://example.com/ref.jpg");
 
     expect(res.status).toBe(400);
   });
@@ -117,7 +117,7 @@ describe("POST /generations", () => {
       .set(auth())
       .field("inputType",         GenerationInputType.TEXT)
       .field("voiceId",           "af_heart")
-      .field("referenceImageUrl", "https://example.com/ref.jpg");
+      .field("avatarImageUrl", "https://example.com/ref.jpg");
 
     expect(res.status).toBe(400);
   });
@@ -128,7 +128,7 @@ describe("POST /generations", () => {
       .set(auth())
       .field("inputType",         GenerationInputType.AUDIO)
       .field("voiceId",           "af_heart")
-      .field("referenceImageUrl", "https://example.com/ref.jpg");
+      .field("avatarImageUrl", "https://example.com/ref.jpg");
 
     expect(res.status).toBe(400);
   });
@@ -139,7 +139,7 @@ describe("POST /generations", () => {
       .set(auth())
       .field("inputType",         "video")
       .field("voiceId",           "af_heart")
-      .field("referenceImageUrl", "https://example.com/ref.jpg");
+      .field("avatarImageUrl", "https://example.com/ref.jpg");
 
     expect(res.status).toBe(400);
   });
@@ -152,7 +152,7 @@ describe("POST /generations", () => {
       .field("inputType",         GenerationInputType.TEXT)
       .field("voiceId",           "af_heart")
       .field("inputText",         "Hello.")
-      .field("referenceImageUrl", "https://example.com/ref.jpg");
+      .field("avatarImageUrl", "https://example.com/ref.jpg");
 
     expect(res.status).toBe(401);
   });

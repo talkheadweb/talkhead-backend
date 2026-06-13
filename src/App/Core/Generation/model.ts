@@ -32,7 +32,7 @@ const GenerationSchema = new Schema<TGenerationDocument>(
       type    : String,
       required: true,
     },
-    referenceImage: {
+    avatarImage: {
       type    : String,
       required: true,
     },

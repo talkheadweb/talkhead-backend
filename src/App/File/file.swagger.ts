@@ -46,7 +46,7 @@ export const filePaths = {
         "|------|--------|---------------|----------|----------------|",
         "| `profile_picture` | `profiles/` | JPEG, PNG, WebP | 2 MB | Any authenticated user |",
         "| `avatar_image` | `avatars/` | JPEG, PNG, WebP, GIF | 5 MB | Admin only |",
-        "| `generation` | `generations/<userId>/` | JPEG, PNG, MP3, WAV, M4A, MP4, MOV, WebM, AVI | 50 MB | Any authenticated user |",
+        "| `generation` | `generations/<userId>/` | JPEG, PNG, MP3, WAV, M4A, MP4, MOV, WebM, AVI | 200 MB | Any authenticated user |",
       ].join("\n"),
       secured  : true,
       body     : multipartBody({

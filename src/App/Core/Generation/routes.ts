@@ -30,7 +30,7 @@ generationRouter.use(authenticate);
 generationRouter.post(
   "/",
   generationUpload.fields([
-    { name: "referenceImage", maxCount: 1 },
+    { name: "avatarImage", maxCount: 1 },
     { name: "inputAudio",     maxCount: 1 },
   ]),
   validateRequest(createGenerationSchema),

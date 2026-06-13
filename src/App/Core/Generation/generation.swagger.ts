@@ -30,7 +30,7 @@ const generationObject = {
     status        : enumOf([...GenerationStatusValues]),
     inputType     : enumOf([...GenerationInputTypeValues]),
     voiceId       : str({ example: "af_heart" }),
-    referenceImage: str({ example: "generations/images/uuid.jpg" }),
+    avatarImage: str({ example: "generations/images/uuid.jpg" }),
     inputText     : str({ example: "Read this aloud in a calm voice." }),
     inputAudio    : str({ example: "generations/audio/uuid.mp3" }),
     outputUrl     : str({ example: "https://cdn.example.com/out.mp3" }),
@@ -56,8 +56,8 @@ export const generationPaths = {
     ...post({
       summary    : "Create a generation job",
       description:
-        "Accepts multipart/form-data. referenceImage is required as either a file upload " +
-        "(JPEG/PNG ≤ 5 MB) or a URL in referenceImageUrl. " +
+        "Accepts multipart/form-data. avatarImage is required as either a file upload " +
+        "(JPEG/PNG ≤ 5 MB) or a URL in avatarImageUrl. " +
         "When inputType is audio, inputAudio file (MP3/WAV/M4A ≤ 12 MB) is also required. " +
         "Files are uploaded to R2 after the job is enqueued; the record is rolled back if enqueue fails.",
       secured  : true,
@@ -72,8 +72,8 @@ export const generationPaths = {
                 inputType       : enumOf([...GenerationInputTypeValues]),
                 voiceId         : str({ example: "af_heart" }),
                 inputText       : str({ max: 5000, example: "Read this calmly." }),
-                referenceImageUrl: str({ example: "https://cdn.example.com/ref.jpg" }),
-                referenceImage  : { type: "string", format: "binary", description: "JPEG/PNG ≤ 5 MB" },
+                avatarImageUrl: str({ example: "https://cdn.example.com/ref.jpg" }),
+                avatarImage  : { type: "string", format: "binary", description: "JPEG/PNG ≤ 5 MB" },
                 inputAudio      : { type: "string", format: "binary", description: "MP3/WAV/M4A ≤ 12 MB (required when inputType=audio)" },
               },
             },

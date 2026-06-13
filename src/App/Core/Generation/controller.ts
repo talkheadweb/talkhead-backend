@@ -15,20 +15,20 @@ const IMAGE_SIZE_LIMIT = 5 * 1024 * 1024; // 5 MB
 // ── Create ─────────────────────────────────────────────────────────────────
 const create = catchAsync(async (req: Request, res: Response) => {
   const files       = req.files as Record<string, Express.Multer.File[]> | undefined;
-  const refImageFile = files?.["referenceImage"]?.[0];
+  const refImageFile = files?.["avatarImage"]?.[0];
   const audioFile    = files?.["inputAudio"]?.[0];
 
-  // Validate referenceImage — must be either a file upload or a URL in the body
-  if (!refImageFile && !req.body.referenceImageUrl) {
+  // Validate avatarImage — must be either a file upload or a URL in the body
+  if (!refImageFile && !req.body.avatarImageUrl) {
     throw new CustomError(
-      "referenceImage is required: upload a file or provide referenceImageUrl.",
+      "avatarImage is required: upload a file or provide avatarImageUrl.",
       400,
     );
   }
 
   // Enforce 5 MB cap on the reference image (multer limit is 12 MB for audio)
   if (refImageFile && refImageFile.size > IMAGE_SIZE_LIMIT) {
-    throw new CustomError("referenceImage must not exceed 5 MB.", 400);
+    throw new CustomError("avatarImage must not exceed 5 MB.", 400);
   }
 
   // Validate audio presence when inputType = audio

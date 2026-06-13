@@ -10,7 +10,7 @@ Centralized file record registry. Every file uploaded to Cloudflare R2 through t
 |------|---------------|---------------|----------|-------------------|
 | `profile_picture` | `profiles/` | JPEG, PNG, WebP | 2 MB | No |
 | `avatar_image` | `avatars/` | JPEG, PNG, WebP, GIF | 5 MB | Yes |
-| `generation` | `generations/<userId>/` | JPEG, PNG, MP3, WAV, M4A, MP4, MOV, WebM, AVI | 50 MB | Yes |
+| `generation` | `generations/<userId>/` | JPEG, PNG, MP3, WAV, M4A, MP4, MOV, WebM, AVI | 200 MB | Yes |
 
 `deleteWithOwner` is config-only (derived from `FileTypeConfig` at runtime — not stored in the DB document).
 

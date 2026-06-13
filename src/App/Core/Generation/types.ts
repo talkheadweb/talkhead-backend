@@ -9,7 +9,7 @@ export interface IGeneration {
   status        : TGenerationStatus;
   inputType     : TGenerationInputType;
   voiceId       : string;              // Kokoro voice ID (always required)
-  referenceImage: string;              // R2 file key or external https:// URL
+  avatarImage: string;              // R2 file key or external https:// URL
   inputText?    : string;              // required when inputType = text
   inputAudio?   : string;              // R2 file key, required when inputType = audio
   outputUrl?    : string;              // set by Kokoro callback on success
@@ -32,7 +32,7 @@ export type TCreateGenerationBody = {
   inputType        : TGenerationInputType;
   voiceId          : string;
   inputText?       : string;
-  referenceImageUrl?: string;           // present when referenceImage is passed as URL (no file)
+  avatarImageUrl?: string;           // present when avatarImage is passed as URL (no file)
 };
 
 export type TCallbackBody = {
