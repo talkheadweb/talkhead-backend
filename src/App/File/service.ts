@@ -30,13 +30,10 @@ const upload = async (
 
   await uploadFileToR2(file.path, fileKey, file.mimetype);
 
-  const fileUrl = buildFileUrl(fileKey);
-
   return FileRecordModel.create({
     type        : payload.type,
     folder,
     fileKey,
-    fileUrl,
     originalName: file.originalname,
     mimeType    : file.mimetype,
     fileSize    : file.size,
@@ -59,7 +56,6 @@ const track = async (
     type        : payload.type,
     folder,
     fileKey     : payload.fileKey,
-    fileUrl     : payload.fileUrl,
     originalName: payload.originalName,
     mimeType    : payload.mimeType,
     fileSize    : payload.fileSize,
@@ -82,8 +78,6 @@ const externalUpload = async (
 
   await uploadFileToR2(file.path, fileKey, file.mimetype);
 
-  const fileUrl = buildFileUrl(fileKey);
-
   // ownerId takes precedence; fall back to generationId so every generation
   // output is always linkable by its generation.
   const resolvedOwnerId = ownerId ?? generationId;
@@ -92,7 +86,6 @@ const externalUpload = async (
     type        : FileType.GENERATION,
     folder,
     fileKey,
-    fileUrl,
     originalName: file.originalname,
     mimeType    : file.mimetype,
     fileSize    : file.size,
@@ -100,11 +93,13 @@ const externalUpload = async (
   });
 };
 
-// ── findOneByUrl: look up a FileRecord by fileUrl or fileKey ───────────────
-// Used by markCompleted to detect if the external API already uploaded the
-// output file via /files/external-upload, so we don't create a duplicate.
-const findOneByUrl = async (url: string): Promise<IFileRecord | null> =>
-  FileRecordModel.findOne({ $or: [{ fileUrl: url }, { fileKey: url }] }).lean();
+// ── findOneByUrl: look up a FileRecord by fileKey (fileUrl is no longer stored)
+const findOneByUrl = async (key: string): Promise<IFileRecord | null> =>
+  FileRecordModel.findOne({ fileKey: key }).lean();
+
+// ── findByFileKey: look up a FileRecord by its exact R2 object key ─────────
+const findByFileKey = async (fileKey: string): Promise<IFileRecord | null> =>
+  FileRecordModel.findOne({ fileKey }).lean();
 
 // ── deleteByOwner: remove all cascade-deletable FileRecords for an owner ───
 // Only types with deleteWithOwner:true in FileTypeConfig are affected.
@@ -126,13 +121,10 @@ const deleteByKey = async (fileKey: string): Promise<void> => {
   await FileRecordModel.deleteOne({ fileKey });
 };
 
-// ── deleteByRef: delete when you only have a URL (e.g. auth profilePicture) ─
-// Matches FileRecord by fileUrl OR fileKey, so either storage format works.
-const deleteByRef = async (keyOrUrl: string): Promise<void> => {
-  await deleteFromR2(keyOrUrl).catch(() => {});
-  await FileRecordModel.deleteOne({
-    $or: [{ fileKey: keyOrUrl }, { fileUrl: keyOrUrl }],
-  });
+// ── deleteByRef: delete by fileKey ────────────────────────────────────────
+const deleteByRef = async (fileKey: string): Promise<void> => {
+  await deleteFromR2(fileKey).catch(() => {});
+  await FileRecordModel.deleteOne({ fileKey });
 };
 
 // ── getPresignedUrl ────────────────────────────────────────────────────────
@@ -216,9 +208,40 @@ const remove = async (id: string, uid: string, isAdmin: boolean): Promise<IFileR
 };
 
 // ── internal helpers ────────────────────────────────────────────────────────
+
+// buildFileUrl: permanent stored reference — CDN URL when custom domain is
+// configured, otherwise the raw R2 key. This value is saved in the DB.
 const buildFileUrl = (fileKey: string): string => {
   const domain = config.cloudflare_r2.customDomain;
   return domain ? `https://${domain}/${fileKey}` : fileKey;
 };
 
-export const FileService = { upload, externalUpload, track, findOneByUrl, deleteByOwner, deleteByKey, deleteByRef, getById, getPresignedUrlById, list, remove };
+// getUrlByKey: client-facing URL for a given R2 key.
+// With a custom domain → CDN URL (permanent, no expiry).
+// Without a custom domain → fresh presigned URL (default 1 hour).
+// Use this everywhere you need a URL to hand to a client, not buildFileUrl.
+const getUrlByKey = async (fileKey: string, expiresIn = 3600): Promise<string> => {
+  const domain = config.cloudflare_r2.customDomain;
+  return domain ? `https://${domain}/${fileKey}` : getPresignedUrl(fileKey, expiresIn);
+};
+
+// toPublicRecord: add a fresh presigned fileUrl to any object that has fileKey.
+// fileUrl is never stored in the DB — it is always computed at response time.
+const toPublicRecord = async <T extends { fileKey: string }>(
+  record: T,
+  expiresIn = 3600,
+): Promise<T & { fileUrl: string }> => ({ ...record, fileUrl: await getUrlByKey(record.fileKey, expiresIn) });
+
+// toPublicRecords: batch version of toPublicRecord.
+const toPublicRecords = <T extends { fileKey: string }>(
+  records: T[],
+  expiresIn = 3600,
+): Promise<(T & { fileUrl: string })[]> => Promise.all(records.map(r => toPublicRecord(r, expiresIn)));
+
+export const FileService = {
+  upload, externalUpload, track,
+  getUrlByKey, toPublicRecord, toPublicRecords,
+  findOneByUrl, findByFileKey,
+  deleteByOwner, deleteByKey, deleteByRef,
+  getById, getPresignedUrlById, list, remove,
+};

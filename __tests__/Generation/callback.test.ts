@@ -5,6 +5,12 @@ import { GenerationStatus } from "@/App/Core/Generation/const";
 import config from "@/Config";
 
 jest.mock("@/App/Core/Generation/model");
+jest.mock("@/App/File/service", () => ({
+  FileService: {
+    findByFileKey: jest.fn().mockResolvedValue(null),
+    buildUrl     : jest.fn((key: string) => `https://cdn.example.com/${key}`),
+  },
+}));
 // @/Config/queue is mocked globally via jest.config moduleNameMapper
 
 const ENDPOINT  = "/api/v1/generations";
@@ -28,11 +34,29 @@ describe("POST /generations/:id/callback", () => {
 
   // ── Happy paths ────────────────────────────────────────────────────────────
 
-  it("200 — success=true marks generation completed", async () => {
+  it("200 — success=true marks generation completed storing outputFileKey as outputUrl", async () => {
     const res = await request(app)
       .post(`${ENDPOINT}/${mockGenId}/callback`)
       .set(apiKey())
-      .send({ success: true, outputUrl: "https://cdn.example.com/result.mp3" });
+      .send({ success: true, outputFileKey: "generations/output/uuid.mp4" });
+
+    expect(res.status).toBe(200);
+    expect(MockModel.findByIdAndUpdate).toHaveBeenCalledWith(
+      mockGenId,
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          status   : GenerationStatus.COMPLETED,
+          outputFileKey: "generations/output/uuid.mp4",
+        }),
+      }),
+    );
+  });
+
+  it("200 — success=true without outputFileKey still completes", async () => {
+    const res = await request(app)
+      .post(`${ENDPOINT}/${mockGenId}/callback`)
+      .set(apiKey())
+      .send({ success: true });
 
     expect(res.status).toBe(200);
     expect(MockModel.findByIdAndUpdate).toHaveBeenCalledWith(
@@ -40,7 +64,6 @@ describe("POST /generations/:id/callback", () => {
       expect.objectContaining({
         $set: expect.objectContaining({ status: GenerationStatus.COMPLETED }),
       }),
-      expect.any(Object),
     );
   });
 
@@ -84,15 +107,6 @@ describe("POST /generations/:id/callback", () => {
       .post(`${ENDPOINT}/${mockGenId}/callback`)
       .set(apiKey())
       .send({});
-
-    expect(res.status).toBe(400);
-  });
-
-  it("400 — outputUrl not a valid URL", async () => {
-    const res = await request(app)
-      .post(`${ENDPOINT}/${mockGenId}/callback`)
-      .set(apiKey())
-      .send({ success: true, outputUrl: "not-a-url" });
 
     expect(res.status).toBe(400);
   });

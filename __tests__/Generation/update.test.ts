@@ -13,7 +13,7 @@ const mockGenId  = "664f1b2c3e4a5b6c7d8e9f00";
 const MockModel = GenerationModel as jest.Mocked<typeof GenerationModel>;
 const MockJwt   = JwtHelper       as jest.Mocked<typeof JwtHelper>;
 
-const updatedDoc = { _id: mockGenId, status: GenerationStatus.COMPLETED, outputUrl: "https://cdn.example.com/out.mp3" };
+const updatedDoc = { _id: mockGenId, status: GenerationStatus.COMPLETED, outputFileKey: "generations/output/uuid.mp3" };
 
 describe("PATCH /generations/:id (admin update)", () => {
   beforeEach(() => {
@@ -25,7 +25,7 @@ describe("PATCH /generations/:id (admin update)", () => {
     const res = await request(app)
       .patch(`${ENDPOINT}/${mockGenId}`)
       .set("Authorization", "Bearer t")
-      .send({ status: GenerationStatus.COMPLETED, outputUrl: "https://cdn.example.com/out.mp3" });
+      .send({ status: GenerationStatus.COMPLETED, outputFileKey: "generations/output/uuid.mp3" });
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe(GenerationStatus.COMPLETED);
   });

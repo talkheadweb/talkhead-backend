@@ -25,7 +25,7 @@ export const createGenerationSchema = z.object({
 export const updateGenerationSchema = z.object({
   body: z.object({
     status      : z.enum(GenerationStatusValues).optional(),
-    outputUrl   : z.string().url().optional(),
+    outputFileKey: z.string().min(1).optional(),
     errorMessage: z.string().optional(),
     completedAt : z.coerce.date().optional(),
   }),
@@ -34,8 +34,8 @@ export const updateGenerationSchema = z.object({
 // ── External API callback ──────────────────────────────────────────────────
 export const callbackGenerationSchema = z.object({
   body: z.object({
-    success  : z.boolean({ required_error: "success is required" }),
-    outputUrl: z.string().url().optional(),
-    message  : z.string().optional(),
+    success      : z.boolean({ required_error: "success is required" }),
+    outputFileKey: z.string().min(1).optional(),
+    message      : z.string().optional(),
   }),
 });

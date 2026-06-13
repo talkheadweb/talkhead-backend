@@ -42,7 +42,7 @@ When a generation job is ready, our server sends the following request.
     "inputType"   : "text",
     "avatarImage" : "generations/images/uuid.jpg",
     "inputText"   : "Say this calmly.",
-    "inputAudio"  : null
+    "inputAudioKey": null
   }
 }
 ```
@@ -55,7 +55,7 @@ When a generation job is ready, our server sends the following request.
 | `payload.inputType` | `"text" \| "audio"` | Determines which input field to use. |
 | `payload.avatarImage` | `string` | R2 file key or full URL of the reference avatar image. |
 | `payload.inputText` | `string \| null` | Text input — present when `inputType` is `text`. |
-| `payload.inputAudio` | `string \| null` | R2 file key of the audio input — present when `inputType` is `audio`. |
+| `payload.inputAudioKey` | `string \| null` | R2 file key of the audio input — present when `inputType` is `audio`. |
 
 **Expected response from your server:**
 
@@ -71,7 +71,7 @@ or simply `200 OK` with an empty body — either is fine.
 
 ## Step 1b — Upload the Output File (External API → Our Server)
 
-Before sending the callback, upload the generated output file to our storage. This keeps the file under our CDN and ensures proper tracking. The `fileUrl` you receive back is what you use as `outputUrl` in the callback.
+Before sending the callback, upload the generated output file to our storage. This keeps the file in our private R2 bucket and ensures proper tracking. Use the `fileKey` from the response as `outputFileKey` in your callback.
 
 **Method:** `POST`
 
@@ -107,7 +107,7 @@ Before sending the callback, upload the generated output file to our storage. Th
     "type": "generation",
     "folder": "generations/output",
     "fileKey": "generations/output/550e8400-e29b-41d4-a716-446655440000.mp4",
-    "fileUrl": "https://cdn.yourdomain.com/generations/output/550e8400.mp4",
+    "fileUrl": "https://r2.example.com/generations/output/550e8400.mp4?presigned=...",
     "originalName": "output.mp4",
     "mimeType": "video/mp4",
     "fileSize": 12582912
@@ -115,9 +115,7 @@ Before sending the callback, upload the generated output file to our storage. Th
 }
 ```
 
-Use `data.fileUrl` as the `outputUrl` in your callback (Step 2). Our server automatically detects that the file already exists in our storage and avoids creating a duplicate record.
-
-> **Fallback:** If you cannot use this endpoint and host the output file on your own CDN, you may still send any public URL as `outputUrl` in the callback. Our server will accept it and track it. However, uploading via this endpoint is preferred.
+Use `data.fileKey` as the `outputFileKey` value in your callback (Step 2). Our server looks up the FileRecord by key and links it to the generation automatically.
 
 ---
 
@@ -140,8 +138,8 @@ When your processing is complete — whether successful or not — send a `POST`
 
 ```json
 {
-  "success"  : true,
-  "outputUrl": "https://cdn.example.com/outputs/664f1b2c3e4a5b6c7d8e9f00.mp4"
+  "success"      : true,
+  "outputFileKey": "generations/output/550e8400-e29b-41d4-a716-446655440000.mp4"
 }
 ```
 
@@ -157,7 +155,7 @@ When your processing is complete — whether successful or not — send a `POST`
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `success` | `boolean` | ✅ | `true` if generation completed successfully, `false` otherwise |
-| `outputUrl` | `string` (URL) | Required when `success=true` | Full public URL of the generated output file |
+| `outputFileKey` | `string` | Required when `success=true` | The `fileKey` value returned by `POST /api/v1/files/external-upload`. Our server builds the CDN URL from this key and stores it. |
 | `message` | `string` | Required when `success=false` | Human-readable reason for failure. Stored on the record. |
 
 **Our server's response to your callback:**
@@ -171,7 +169,7 @@ If we respond with `4xx`, check the table below. If we respond with `5xx`, you m
 | Status | Meaning |
 |--------|---------|
 | `200` | Callback accepted and processed |
-| `400` | Invalid body — check that `success` is a boolean and `outputUrl` is a valid URL |
+| `400` | Invalid body — check that `success` is a boolean and `outputFileKey` is a non-empty string |
 | `401` | Missing `x-api-key` header |
 | `403` | Wrong `x-api-key` value |
 | `404` | `recordId` not found — do not retry |
@@ -193,7 +191,7 @@ The `avatarImage` field in the trigger payload may be either:
 - A **full public URL** (e.g. `https://cdn.example.com/ref.jpg`) — fetch it directly
 - A **bare R2 file key** (e.g. `generations/images/uuid.jpg`) — contact us for a presigned URL if needed
 
-The `outputUrl` you return in the callback must be a **full public URL** that our server can store and that end users can access directly.
+Do **not** send a URL back in the callback. Instead, upload the file to `/files/external-upload` (Step 1b) and send the returned `fileKey` as `outputFileKey` in your callback. Our server stores the key and generates presigned URLs for end users at response time.
 
 ---
 
@@ -235,11 +233,11 @@ Our server                              External API
     │  x-api-key: <secret>                  │
     │◄─────────────────────────────────────┤
     │                                       │
-    │  201 Created { fileUrl: "https://cdn.../output.mp4" } │
+    │  201 Created { fileKey: "generations/output/uuid.mp4" } │
     │ ─────────────────────────────────────►│
     │                                       │
     │  POST /api/v1/generations/:id/callback│
-    │  { success: true, outputUrl: fileUrl }│
+    │  { success: true, outputFileKey: "generations/output/uuid.mp4" } │
     │  x-api-key: <secret>                  │
     │◄─────────────────────────────────────┤
     │                                       │
@@ -275,8 +273,8 @@ This is also passed directly in every trigger request as `callbackUrl` so you do
 - [ ] Validate the incoming `x-api-key` header on your trigger endpoint
 - [ ] Process the generation job asynchronously
 - [ ] On completion, upload the output file to `POST /api/v1/files/external-upload` — include `x-api-key` and pass `generationId = recordId`
-- [ ] Use the returned `fileUrl` as `outputUrl` in the callback (or use your own CDN URL as fallback)
-- [ ] `POST` to the exact `callbackUrl` with `{ success: true, outputUrl }` or `{ success: false, message }`
+- [ ] Use the returned `fileKey` as `outputFileKey` in the callback
+- [ ] `POST` to the exact `callbackUrl` with `{ success: true, outputFileKey }` or `{ success: false, message }`
 - [ ] Include the `x-api-key` header on your callback request
 - [ ] On our `5xx` response, retry the callback with backoff
 - [ ] On our `4xx` response, do not retry — fix the request body

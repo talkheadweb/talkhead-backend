@@ -155,7 +155,8 @@ const fileRecord = await FileService.upload(req.file, req, {
   type   : FileType.AVATAR_IMAGE,
   ownerId: avatarId,    // optional — link file to its owner doc for cascade delete
 });
-// fileRecord._id, fileKey, fileUrl, mimeType, fileSize are all available
+// fileRecord._id, fileKey, mimeType, fileSize are all available
+// fileUrl is NOT stored — call FileService.toPublicRecord(fileRecord) to get a presigned fileUrl
 ```
 
 ### Pre-existing R2 upload — `FileService.track()`
@@ -166,7 +167,6 @@ For cases where the R2 upload is handled externally (e.g. the generation control
 FileService.track(userId, {           // userId string, not req
   type        : FileType.GENERATION,
   fileKey     : "generations/user123/uuid.mp3",
-  fileUrl     : "generations/user123/uuid.mp3",
   originalName: "voice.mp3",
   mimeType    : "audio/mpeg",
   fileSize    : 204800,
@@ -192,7 +192,7 @@ FileService.deleteByKey(fileKey).catch(() => {});
 
 ### Delete by URL or key — `FileService.deleteByRef()`
 
-Used when you only have a URL (e.g. `profilePicture` stored as a URL string). Matches `fileKey` or `fileUrl` — whichever was stored.
+Used when you only have the stored reference (e.g. `profilePicture` stored as an R2 key or external URL). Matches on `fileKey`.
 
 ```ts
 FileService.deleteByRef(existingProfilePictureUrl).catch(() => {});
@@ -222,7 +222,7 @@ The factory derives allowed mimes and max size from `FileTypeConfig`. For multi-
 2. **Access**: non-admins can only see and delete files they uploaded
 3. **R2 key uniqueness**: all file keys are UUID-based — no overwrites, ever
 4. **Cascade delete config**: `deleteWithOwner` behavior is derived from `FileTypeConfig` at runtime — it is NOT stored in the DB document. Profile pictures are kept even if the user is deleted; avatar and generation files are cascade-deleted with their owner via `deleteByOwner(ownerId)`
-5. **Presigned URLs**: for private buckets (no `customDomain`), `fileUrl` stores the bare `fileKey`; use the presigned endpoint to get a temporary access URL
+5. **Presigned URLs**: `fileUrl` is never stored in the database. Every response that returns a `FileRecord` calls `FileService.toPublicRecord()` which adds a computed `fileUrl` (presigned URL, 1 hr TTL). Use `GET /files/:id/presigned` to get a fresh URL at any time
 6. **`avatar_image` upload via `/files/upload`**: requires admin role (enforced in the controller, not just the route)
 
 ---
@@ -232,7 +232,7 @@ The factory derives allowed mimes and max size from `FileTypeConfig`. For multi-
 ```
 src/App/File/
   const.ts          ← FileType enum, FileTypeValues tuple, TFileTypeConfig interface, FileTypeConfig map
-  types.ts          ← IFileRecord (_id, type, folder, fileKey, fileUrl, …), TUploadPayload, TTrackPayload
+  types.ts          ← IFileRecord (_id, type, folder, fileKey, …), TUploadPayload, TTrackPayload
   model.ts          ← FileRecord Mongoose model (no ownerType or deleteWithOwner fields)
   validation.ts     ← Zod upload + query schemas
   service.ts        ← FileService: upload, track, deleteByOwner, deleteByKey, deleteByRef,

@@ -115,7 +115,9 @@ const login = async (payload: TLoginInput): Promise<TLoginResponse> => {
 
   log.info("User logged in", { userId: user._id });
 
-  return { user: toPublicUser(user), accessToken, refreshToken };
+  const publicUser = toPublicUser(user);
+  publicUser.profilePictureKey = await resolveProfilePictureUrl(user.profilePictureKey);
+  return { user: publicUser, accessToken, refreshToken };
 };
 
 // ── Logout ─────────────────────────────────────────────────────────────────
@@ -296,6 +298,7 @@ const claimSocialAuthCode = async (code: string): Promise<TSocialCodePayload> =>
  * Without a customDomain the stored value is a bare R2 object key — generate a
  * short-lived presigned URL so the client can display it.
  */
+// Resolves profilePictureKey (R2 file key or external https:// URL) to a displayable URL.
 const resolveProfilePictureUrl = async (raw: string | null | undefined): Promise<string | null> => {
   if (!raw || !raw.trim()) return null;
   if (raw.startsWith("http")) return raw;      // full URL (Google, etc.) — use as-is
@@ -324,7 +327,7 @@ const getMe = async (userId: string): Promise<TUserPublic> => {
   const user = await UserModel.findById(userId);
   if (!user) throw new CustomError("User not found.", 404);
   const publicUser = toPublicUser(user);
-  publicUser.profilePicture = await resolveProfilePictureUrl(user.profilePicture);
+  publicUser.profilePictureKey = await resolveProfilePictureUrl(user.profilePictureKey);
   return publicUser;
 };
 
@@ -357,14 +360,13 @@ const updateProfile = async (
     // Upload new image first, then delete the old one.
     // Order matters: if the upload fails we throw before touching R2, leaving
     // the user's current picture intact.
-    const { fileKey, fileUrl } = await uploadProfileImageToR2(file.path, file.originalname);
-    updates.profilePicture = fileUrl;
+    const { fileKey } = await uploadProfileImageToR2(file.path, file.originalname);
+    updates.profilePictureKey = fileKey;
 
     // Track the upload in FileRecord (non-critical, fire-and-forget)
     FileService.track(userId, {
       type        : FileType.PROFILE_PICTURE,
       fileKey,
-      fileUrl,
       originalName: file.originalname,
       mimeType    : "image/webp",
       fileSize    : 0,
@@ -372,13 +374,13 @@ const updateProfile = async (
     }).catch(() => {});
 
     // Delete old picture (R2 + FileRecord) + invalidate presigned URL cache
-    if (existing.profilePicture) {
-      FileService.deleteByRef(existing.profilePicture).catch(() => {
-        log.warn("Could not delete old profile picture", { userId, url: existing.profilePicture });
+    if (existing.profilePictureKey) {
+      FileService.deleteByRef(existing.profilePictureKey).catch(() => {
+        log.warn("Could not delete old profile picture", { userId, key: existing.profilePictureKey });
       });
-      // Only bare file keys have cached presigned URLs; HTTP URLs (Google etc.) are never cached
-      if (!existing.profilePicture.startsWith("http")) {
-        AuthRedisService.presignedUrlCache.del(existing.profilePicture).catch(() => {/* non-critical */});
+      // Only R2 file keys have cached presigned URLs; external https:// URLs are never cached
+      if (!existing.profilePictureKey.startsWith("http")) {
+        AuthRedisService.presignedUrlCache.del(existing.profilePictureKey).catch(() => {/* non-critical */});
       }
     }
   }
@@ -393,7 +395,7 @@ const updateProfile = async (
 
   log.info("Profile updated", { userId, fields: Object.keys(updates) });
   const publicUser = toPublicUser(user);
-  publicUser.profilePicture = await resolveProfilePictureUrl(user.profilePicture);
+  publicUser.profilePictureKey = await resolveProfilePictureUrl(user.profilePictureKey);
   return publicUser;
 };
 

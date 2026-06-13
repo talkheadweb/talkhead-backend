@@ -12,36 +12,65 @@ import { GenerationFilterKeys, GenerationExtraFilterKeys, IGeneration } from "./
 
 const IMAGE_SIZE_LIMIT = 5 * 1024 * 1024; // 5 MB
 
+// Enrich a generation doc for the frontend.
+// All original keys are kept; presigned URLs are added alongside them:
+//   avatarImageKey (R2 key)  → + avatarImageUrl (presigned)
+//   inputAudioKey            → + inputAudioUrl  (presigned)
+//   outputFileKey            → + outputUrl      (presigned)
+// External https:// values in avatarImageKey are left unchanged (no extra field added).
+const withPublicUrls = async <T extends Partial<IGeneration>>(
+  doc: T,
+): Promise<T & { avatarImageUrl?: string; inputAudioUrl?: string; outputUrl?: string }> => {
+  const result: Record<string, unknown> = { ...doc };
+
+  if (doc.avatarImageKey && !doc.avatarImageKey.startsWith("http")) {
+    result["avatarImageUrl"] = await FileService.getUrlByKey(doc.avatarImageKey);
+  }
+
+  if (doc.inputAudioKey) {
+    result["inputAudioUrl"] = await FileService.getUrlByKey(doc.inputAudioKey);
+  }
+
+  if (doc.outputFileKey) {
+    result["outputUrl"] = await FileService.getUrlByKey(doc.outputFileKey);
+  }
+
+  return result as T & { avatarImageUrl?: string; inputAudioUrl?: string; outputUrl?: string };
+};
+
+const withPublicUrlsBatch = <T extends Partial<IGeneration>>(docs: T[]) =>
+  Promise.all(docs.map(withPublicUrls));
+
 // ── Create ─────────────────────────────────────────────────────────────────
 const create = catchAsync(async (req: Request, res: Response) => {
-  const files       = req.files as Record<string, Express.Multer.File[]> | undefined;
-  const refImageFile = files?.["avatarImage"]?.[0];
-  const audioFile    = files?.["inputAudio"]?.[0];
+  const files          = req.files as Record<string, Express.Multer.File[]> | undefined;
+  const avatarImageFile = files?.["avatarImage"]?.[0];
+  const inputAudioFile  = files?.["inputAudio"]?.[0];
 
   // Validate avatarImage — must be either a file upload or a URL in the body
-  if (!refImageFile && !req.body.avatarImageUrl) {
+  if (!avatarImageFile && !req.body.avatarImageUrl) {
     throw new CustomError(
       "avatarImage is required: upload a file or provide avatarImageUrl.",
       400,
     );
   }
 
-  // Enforce 5 MB cap on the reference image (multer limit is 12 MB for audio)
-  if (refImageFile && refImageFile.size > IMAGE_SIZE_LIMIT) {
+  // Enforce 5 MB cap on the avatar image (multer limit is 12 MB for audio)
+  if (avatarImageFile && avatarImageFile.size > IMAGE_SIZE_LIMIT) {
     throw new CustomError("avatarImage must not exceed 5 MB.", 400);
   }
 
   // Validate audio presence when inputType = audio
-  if (req.body.inputType === "audio" && !audioFile) {
+  if (req.body.inputType === "audio" && !inputAudioFile) {
     throw new CustomError("inputAudio file is required when inputType is audio.", 400);
   }
 
   // Generate R2 keys now (no upload yet — files are uploaded after enqueue)
-  const refImageKey = refImageFile
-    ? generateR2Key("generations/images", refImageFile.originalname)
+  const refImageKey = avatarImageFile
+    ? generateR2Key("generations/images", avatarImageFile.originalname)
     : undefined;
-  const audioKey = audioFile
-    ? generateR2Key("generations/audio", audioFile.originalname)
+  const audioKey = inputAudioFile
+    ? generateR2Key("generations/audio", inputAudioFile.originalname)
     : undefined;
 
   // Create DB record + enqueue; if enqueue fails the record is rolled back
@@ -51,43 +80,41 @@ const create = catchAsync(async (req: Request, res: Response) => {
   });
 
   // Upload files to R2 after successful enqueue, track each as a FileRecord, store refs
-  const refIds: { refImageFile?: string; audioFile?: string } = {};
+  const refIds: { avatarImageFile?: string; inputAudioFile?: string } = {};
 
   const uploads: Promise<void>[] = [];
-  if (refImageFile && refImageKey) {
+  if (avatarImageFile && refImageKey) {
     uploads.push(
-      uploadFileToR2(refImageFile.path, refImageKey, refImageFile.mimetype).then(() => {
+      uploadFileToR2(avatarImageFile.path, refImageKey, avatarImageFile.mimetype).then(() => {
         FileService.track(req.user!.uid, {
           type        : FileType.GENERATION,
           fileKey     : refImageKey,
-          fileUrl     : refImageKey,
-          originalName: refImageFile.originalname,
-          mimeType    : refImageFile.mimetype,
-          fileSize    : refImageFile.size,
+          originalName: avatarImageFile.originalname,
+          mimeType    : avatarImageFile.mimetype,
+          fileSize    : avatarImageFile.size,
           ownerId     : String(result._id),
-        }).then(fr => { if (fr?._id) refIds.refImageFile = String(fr._id); }).catch(() => {});
+        }).then(fr => { if (fr?._id) refIds.avatarImageFile = String(fr._id); }).catch(() => {});
       }),
     );
   }
-  if (audioFile && audioKey) {
+  if (inputAudioFile && audioKey) {
     uploads.push(
-      uploadFileToR2(audioFile.path, audioKey, audioFile.mimetype).then(() => {
+      uploadFileToR2(inputAudioFile.path, audioKey, inputAudioFile.mimetype).then(() => {
         FileService.track(req.user!.uid, {
           type        : FileType.GENERATION,
           fileKey     : audioKey,
-          fileUrl     : audioKey,
-          originalName: audioFile.originalname,
-          mimeType    : audioFile.mimetype,
-          fileSize    : audioFile.size,
+          originalName: inputAudioFile.originalname,
+          mimeType    : inputAudioFile.mimetype,
+          fileSize    : inputAudioFile.size,
           ownerId     : String(result._id),
-        }).then(fr => { if (fr?._id) refIds.audioFile = String(fr._id); }).catch(() => {});
+        }).then(fr => { if (fr?._id) refIds.inputAudioFile = String(fr._id); }).catch(() => {});
       }),
     );
   }
   await Promise.all(uploads);
 
   // Persist file refs (fire-and-forget — non-blocking)
-  if (refIds.refImageFile || refIds.audioFile) {
+  if (refIds.avatarImageFile || refIds.inputAudioFile) {
     GenerationService.setFileRefs(String(result._id), refIds).catch(() => {});
   }
 
@@ -105,20 +132,23 @@ const list = catchAsync(async (req: Request, res: Response) => {
   }
 
   const { items, meta } = await GenerationService.list(payload);
-  sendResponse.success(res, { statusCode: 200, message: "Generations fetched.", data: items, meta, req });
+  const data = await withPublicUrlsBatch(items);
+  sendResponse.success(res, { statusCode: 200, message: "Generations fetched.", data, meta, req });
 });
 
 // ── Get one ────────────────────────────────────────────────────────────────
 const getOne = catchAsync(async (req: Request, res: Response) => {
   const isAdmin = req.user!.role === EUserRole.ADMIN;
   const result  = await GenerationService.getOne(req.params["id"] as string, req.user!.uid, isAdmin);
-  sendResponse.success(res, { statusCode: 200, message: "Generation fetched.", data: result, req });
+  const data = await withPublicUrls(result);
+  sendResponse.success(res, { statusCode: 200, message: "Generation fetched.", data, req });
 });
 
 // ── Update (admin only) ────────────────────────────────────────────────────
 const update = catchAsync(async (req: Request, res: Response) => {
   const result = await GenerationService.update(req.params["id"] as string, req.body);
-  sendResponse.success(res, { statusCode: 200, message: "Generation updated.", data: result, req });
+  const data = await withPublicUrls(result);
+  sendResponse.success(res, { statusCode: 200, message: "Generation updated.", data, req });
 });
 
 // ── Cancel (owner or admin) ────────────────────────────────────────────────

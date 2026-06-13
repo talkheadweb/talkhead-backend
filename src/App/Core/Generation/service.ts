@@ -1,4 +1,3 @@
-import path from "path";
 import { Types } from "mongoose";
 import { QueueUtil } from "@/Config/queue";
 import { QueueJobType } from "@/Config/queue/const";
@@ -6,15 +5,14 @@ import { calculatePagination, manageSorting, MongoQueryHelper } from "@/Utils/he
 import CustomError from "@/Utils/errors/customError.class";
 import { LogService } from "@/Config/logger/utils";
 import { FileService } from "@/App/File/service";
-import { FileType } from "@/App/File/const";
 import GenerationModel from "./model";
 import { GenerationStatus } from "./const";
 import type { IGeneration, TCallbackBody, TCreateGenerationBody, TListGenerationsPayload } from "./types";
 import { GenerationFilterKeys as FilterKeys, GenerationSearchKeys as SearchKeys } from "./types";
 
 type TFileKeys = {
-  refImageKey?: string;   // pre-generated R2 key for avatarImage file upload
-  audioKey?   : string;   // pre-generated R2 key for inputAudio file upload
+  refImageKey?: string;   // pre-generated R2 key for avatar image file upload
+  audioKey?   : string;   // pre-generated R2 key for input audio file upload
 };
 
 // ── Create ─────────────────────────────────────────────────────────────────
@@ -23,17 +21,17 @@ type TFileKeys = {
 // If enqueue fails the DB record is rolled back here — no file cleanup needed
 // because files are uploaded only after this returns.
 const create = async (userId: string, body: TCreateGenerationBody, keys: TFileKeys) => {
-  const avatarImage = keys.refImageKey ?? body.avatarImageUrl!;
-  const inputAudio     = keys.audioKey;
+  const avatarImageKey   = keys.refImageKey ?? body.avatarImageUrl!;
+  const inputAudioKey = keys.audioKey;
 
   const doc = await GenerationModel.create({
-    userId        : new Types.ObjectId(userId),
-    status        : GenerationStatus.PENDING,
-    inputType     : body.inputType,
-    voiceId       : body.voiceId,
-    avatarImage,
-    inputText     : body.inputText,
-    inputAudio,
+    userId      : new Types.ObjectId(userId),
+    status      : GenerationStatus.PENDING,
+    inputType   : body.inputType,
+    voiceId     : body.voiceId,
+    avatarImageKey,
+    inputText   : body.inputText,
+    inputAudioKey,
   });
 
   try {
@@ -42,11 +40,11 @@ const create = async (userId: string, body: TCreateGenerationBody, keys: TFileKe
       QueueJobType.GENERATION,
       {
         userId,
-        voiceId       : body.voiceId,
-        inputType     : body.inputType,
-        avatarImage,
-        inputText     : body.inputText,
-        inputAudio,
+        voiceId     : body.voiceId,
+        inputType   : body.inputType,
+        avatarImageKey,
+        inputText   : body.inputText,
+        inputAudioKey,
       },
     );
     // Store the QueueJob reference on the generation doc for easy cross-lookup
@@ -119,7 +117,7 @@ const getOne = async (id: string, requestingUserId: string, isAdmin: boolean) =>
 // ── Update (admin patch) ───────────────────────────────────────────────────
 const update = async (
   id  : string,
-  data: Partial<Pick<IGeneration, "status" | "outputUrl" | "errorMessage" | "completedAt">>,
+  data: Partial<Pick<IGeneration, "status" | "outputFileKey" | "errorMessage" | "completedAt">>,
 ) => {
   const doc = await GenerationModel.findByIdAndUpdate(
     id,
@@ -168,64 +166,31 @@ const markProcessing = async (recordId: string): Promise<void> => {
   });
 };
 
-const markCompleted = async (recordId: string, outputUrl?: string): Promise<void> => {
-  const doc = await GenerationModel.findByIdAndUpdate(
+const markCompleted = async (recordId: string, outputFileKey?: string): Promise<void> => {
+  await GenerationModel.findByIdAndUpdate(
     recordId,
-    { $set: { status: GenerationStatus.COMPLETED, completedAt: new Date(), ...(outputUrl ? { outputUrl } : {}) } },
-    { new: false, lean: true },   // return the pre-update doc so we have userId
+    { $set: { status: GenerationStatus.COMPLETED, completedAt: new Date(), ...(outputFileKey ? { outputFileKey } : {}) } },
   );
 
-  // Link or track the output file (fire-and-forget — non-critical)
-  // If the external API already uploaded via /files/external-upload we find the
-  // existing FileRecord rather than creating a duplicate.
-  if (outputUrl && doc?.userId) {
-    (async () => {
-      const existing = await FileService.findOneByUrl(outputUrl);
-      if (existing?._id) {
-        await GenerationModel.findByIdAndUpdate(recordId, { $set: { outputFile: existing._id } });
-      } else {
-        const ext  = path.extname(outputUrl).toLowerCase();
-        const mime = videoMimeFromExt(ext) ?? "application/octet-stream";
-        const fileRecord = await FileService.track(String(doc!.userId), {
-          type        : FileType.GENERATION,
-          fileKey     : outputUrl,
-          fileUrl     : outputUrl,
-          originalName: path.basename(outputUrl) || `output_${recordId}${ext}`,
-          mimeType    : mime,
-          fileSize    : 0,
-          ownerId     : recordId,
-        });
-        if (fileRecord?._id) {
-          await GenerationModel.findByIdAndUpdate(recordId, { $set: { outputFile: fileRecord._id } });
-        }
+  // Link the FileRecord that was created when the external API uploaded via
+  // /files/external-upload. Fire-and-forget — non-critical.
+  if (outputFileKey) {
+    FileService.findByFileKey(outputFileKey).then(record => {
+      if (record?._id) {
+        GenerationModel.findByIdAndUpdate(recordId, { $set: { outputFile: record._id } }).catch(() => {});
       }
-    })().catch(() => {});
+    }).catch(() => {});
   }
-};
-
-const videoMimeFromExt = (ext: string): string | undefined => {
-  const map: Record<string, string> = {
-    ".mp4" : "video/mp4",
-    ".mpeg": "video/mpeg",
-    ".mpg" : "video/mpeg",
-    ".mov" : "video/quicktime",
-    ".webm": "video/webm",
-    ".avi" : "video/x-msvideo",
-    ".mp3" : "audio/mpeg",
-    ".wav" : "audio/wav",
-    ".m4a" : "audio/x-m4a",
-  };
-  return map[ext];
 };
 
 // ── Set file refs (called after upload, fire-and-forget) ──────────────────
 const setFileRefs = async (
   recordId    : string,
-  refs: { refImageFile?: string; audioFile?: string },
+  refs: { avatarImageFile?: string; inputAudioFile?: string },
 ): Promise<void> => {
   const updates: Record<string, unknown> = {};
-  if (refs.refImageFile) updates.refImageFile = refs.refImageFile;
-  if (refs.audioFile)    updates.audioFile    = refs.audioFile;
+  if (refs.avatarImageFile) updates.avatarImageFile = refs.avatarImageFile;
+  if (refs.inputAudioFile)  updates.inputAudioFile  = refs.inputAudioFile;
   if (Object.keys(updates).length) {
     await GenerationModel.findByIdAndUpdate(recordId, { $set: updates });
   }
@@ -243,7 +208,7 @@ const handleCallback = async (id: string, body: TCallbackBody): Promise<void> =>
   if (!doc) throw new CustomError("Generation record not found.", 404);
 
   if (body.success) {
-    await markCompleted(id, body.outputUrl);
+    await markCompleted(id, body.outputFileKey);
     LogService.APPLICATION.info("Generation completed via callback", { recordId: id });
   } else {
     await markFailed(id, body.message ?? "External API processing did not succeed.");

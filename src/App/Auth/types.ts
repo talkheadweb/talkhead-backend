@@ -18,7 +18,7 @@ export interface IUser {
   role           : EUserRole;
   isVerified     : boolean;
   isActive       : boolean;         // false = suspended by admin
-  profilePicture : string | null;
+  profilePictureKey : string | null;  // R2 file key (uploaded) or external https:// URL (OAuth)
   createdAt      : Date;
   updatedAt      : Date;
 }

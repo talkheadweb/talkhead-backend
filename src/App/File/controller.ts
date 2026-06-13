@@ -40,17 +40,19 @@ const uploadFile = catchAsync(async (req: Request, res: Response) => {
     ownerId: req.body.ownerId as string | undefined,
   });
 
-  sendResponse.success(res, { statusCode: 201, message: "File uploaded.", data: fileRecord, req });
+  const data = await FileService.toPublicRecord(fileRecord);
+  sendResponse.success(res, { statusCode: 201, message: "File uploaded.", data, req });
 });
 
 // ── External upload — x-api-key protected, no user context ─────────────────
 // Used by the external API to upload the generated output file to R2.
-// The returned fileUrl should be sent back as outputUrl in the callback.
+// The returned fileKey should be sent as outputFileKey in the callback.
 const externalUpload = catchAsync(async (req: Request, res: Response) => {
   if (!req.file) throw new CustomError("File is required.", 400);
   const { generationId, ownerId } = req.body as { generationId: string; ownerId?: string };
   const fileRecord = await FileService.externalUpload(req.file, generationId, ownerId);
-  sendResponse.success(res, { statusCode: 201, message: "File uploaded.", data: fileRecord, req });
+  const data = await FileService.toPublicRecord(fileRecord);
+  sendResponse.success(res, { statusCode: 201, message: "File uploaded.", data, req });
 });
 
 // ── List ───────────────────────────────────────────────────────────────────
@@ -58,14 +60,16 @@ const list = catchAsync(async (req: Request, res: Response) => {
   const isAdmin = req.user!.role === EUserRole.ADMIN;
   const payload = queryOptimization<IFileRecord>(req, FileFilterKeys, FileExtraFilterKeys);
   const { items, meta } = await FileService.list(payload, req.user!.uid, isAdmin);
-  sendResponse.success(res, { statusCode: 200, message: "Files fetched.", data: items, meta, req });
+  const data = await FileService.toPublicRecords(items);
+  sendResponse.success(res, { statusCode: 200, message: "Files fetched.", data, meta, req });
 });
 
 // ── Get one ────────────────────────────────────────────────────────────────
 const getOne = catchAsync(async (req: Request, res: Response) => {
   const isAdmin = req.user!.role === EUserRole.ADMIN;
   const record  = await FileService.getById(String(req.params["id"]), req.user!.uid, isAdmin);
-  sendResponse.success(res, { statusCode: 200, message: "File fetched.", data: record, req });
+  const data = await FileService.toPublicRecord(record);
+  sendResponse.success(res, { statusCode: 200, message: "File fetched.", data, req });
 });
 
 // ── Delete ─────────────────────────────────────────────────────────────────

@@ -41,7 +41,7 @@ const components = {
         isVerified    : { type: "boolean", example: true },
         isActive      : { type: "boolean", example: true },
         googleId      : { type: "string",  nullable: true, example: null },
-        profilePicture: { type: "string",  nullable: true, example: "https://cdn.example.com/avatars/file.webp" },
+        profilePictureKey: { type: "string", nullable: true, example: "avatars/550e8400.webp" },
         createdAt     : { type: "string", format: "date-time" },
         updatedAt     : { type: "string", format: "date-time" },
       },

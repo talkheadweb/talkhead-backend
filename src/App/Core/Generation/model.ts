@@ -32,17 +32,17 @@ const GenerationSchema = new Schema<TGenerationDocument>(
       type    : String,
       required: true,
     },
-    avatarImage: {
+    avatarImageKey: {
       type    : String,
       required: true,
     },
     inputText: {
       type: String,
     },
-    inputAudio: {
+    inputAudioKey: {
       type: String,
     },
-    outputUrl: {
+    outputFileKey: {
       type: String,
     },
     errorMessage: {
@@ -51,11 +51,11 @@ const GenerationSchema = new Schema<TGenerationDocument>(
     completedAt: {
       type: Date,
     },
-    refImageFile: {
+    avatarImageFile: {
       type: Schema.Types.ObjectId,
       ref : "FileRecord",
     },
-    audioFile: {
+    inputAudioFile: {
       type: Schema.Types.ObjectId,
       ref : "FileRecord",
     },

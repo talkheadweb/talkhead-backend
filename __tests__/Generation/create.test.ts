@@ -26,7 +26,7 @@ const makeDoc = (overrides = {}) => ({
   status        : GenerationStatus.PENDING,
   inputType     : GenerationInputType.TEXT,
   voiceId       : "af_heart",
-  avatarImage: "generations/images/mock-key.jpg",
+  avatarImageKey: "generations/images/mock-key.jpg",
   inputText     : "Say this calmly.",
   save          : jest.fn().mockResolvedValue(undefined),
   ...overrides,

@@ -4,7 +4,7 @@ Manages AI avatar images uploaded to Cloudflare R2. Admins upload and manage ava
 
 All file keys are UUID-based — uploads never overwrite or version existing files. Every upload produces a globally unique R2 key regardless of the original filename.
 
-File metadata (URL, size, mime type) is stored in a central `FileRecord` document and populated into the avatar response. The avatar document itself stores only `fileKey` (for direct R2 operations without a populate) and `file` (the `FileRecord` ObjectId reference).
+File metadata is stored in a central `FileRecord` document and populated into the avatar response. The avatar document itself stores `fileKey` (R2 object key — for direct R2 operations without a populate) and `file` (the `FileRecord` ObjectId reference). Responses always include `fileUrl` (presigned URL, 1 hr TTL) alongside `fileKey` — raw keys are never the only option sent to the frontend.
 
 ---
 
@@ -50,9 +50,11 @@ If `slug` is not provided: `title` is lowercased, spaces become hyphens, special
     "title": "Professional Narrator",
     "slug": "professional-narrator",
     "fileKey": "avatars/550e8400-e29b-41d4-a716-446655440000.jpg",
+    "fileUrl": "https://r2.example.com/avatars/550e8400.jpg?presigned=...",
     "file": {
       "_id": "664f1b2c3e4a5b6c7d8e9f03",
-      "fileUrl": "https://cdn.example.com/avatars/550e8400-e29b-41d4-a716-446655440000.jpg",
+      "fileKey": "avatars/550e8400-e29b-41d4-a716-446655440000.jpg",
+      "fileUrl": "https://r2.example.com/avatars/550e8400.jpg?presigned=...",
       "mimeType": "image/jpeg",
       "fileSize": 102400,
       "originalName": "narrator.jpg",
@@ -157,6 +159,7 @@ import { FileType } from "@/App/File/const";
 // In avatar controller create handler:
 const fileRecord = await FileService.upload(req.file, req, { type: FileType.AVATAR_IMAGE });
 // fileRecord._id and fileRecord.fileKey are stored on the avatar document
+// Responses add fileUrl (presigned URL) alongside fileKey at both avatar and file level
 
 // In avatar service remove handler:
 FileService.deleteByOwner(String(doc._id)).catch(() => {});

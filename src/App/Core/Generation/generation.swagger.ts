@@ -30,10 +30,13 @@ const generationObject = {
     status        : enumOf([...GenerationStatusValues]),
     inputType     : enumOf([...GenerationInputTypeValues]),
     voiceId       : str({ example: "af_heart" }),
-    avatarImage: str({ example: "generations/images/uuid.jpg" }),
+    avatarImageKey: str({ example: "generations/images/uuid.jpg" }),
+    avatarImageUrl: str({ example: "https://r2.example.com/generations/images/uuid.jpg?presigned=..." }),
     inputText     : str({ example: "Read this aloud in a calm voice." }),
-    inputAudio    : str({ example: "generations/audio/uuid.mp3" }),
-    outputUrl     : str({ example: "https://cdn.example.com/out.mp3" }),
+    inputAudioKey : str({ example: "generations/audio/uuid.mp3" }),
+    inputAudioUrl : str({ example: "https://r2.example.com/generations/audio/uuid.mp3?presigned=..." }),
+    outputFileKey : str({ example: "generations/output/uuid.mp4" }),
+    outputUrl     : str({ example: "https://r2.example.com/generations/output/uuid.mp4?presigned=..." }),
     errorMessage  : str({ example: "Processing failed due to timeout." }),
     completedAt   : { type: "string", format: "date-time" },
     createdAt     : { type: "string", format: "date-time" },
@@ -56,8 +59,8 @@ export const generationPaths = {
     ...post({
       summary    : "Create a generation job",
       description:
-        "Accepts multipart/form-data. avatarImage is required as either a file upload " +
-        "(JPEG/PNG ≤ 5 MB) or a URL in avatarImageUrl. " +
+        "Accepts multipart/form-data. avatarImage file or avatarImageUrl body field is required. " +
+        "The stored DB field is avatarImageKey (R2 key or external URL). " +
         "When inputType is audio, inputAudio file (MP3/WAV/M4A ≤ 12 MB) is also required. " +
         "Files are uploaded to R2 after the job is enqueued; the record is rolled back if enqueue fails.",
       secured  : true,
@@ -113,13 +116,13 @@ export const generationPaths = {
 
     ...patch({
       summary    : "Update generation result (admin only)",
-      description: "Admin patch for status, outputUrl, errorMessage, or completedAt.",
+      description: "Admin patch for status, outputFileKey, errorMessage, or completedAt.",
       secured    : true,
       body       : jsonBody({
         required: [],
         props   : {
-          status      : enumOf([...GenerationStatusValues]),
-          outputUrl   : str({ example: "https://cdn.example.com/out.mp3" }),
+          status       : enumOf([...GenerationStatusValues]),
+          outputFileKey: str({ example: "generations/output/uuid.mp4" }),
           errorMessage: str({ example: "Timeout error." }),
           completedAt : { type: "string", format: "date-time" },
         },
@@ -161,16 +164,16 @@ export const generationPaths = {
       description:
         "Called by the external API when processing finishes. " +
         "Secured by x-api-key header (not a user JWT). " +
-        "success=true sets status to completed and stores outputUrl. " +
-        "success=false sets status to failed — include message with the failure reason. " +
+        "success=true: provide outputFileKey (the R2 object key returned by /files/external-upload). " +
+        "success=false: include message with the failure reason. " +
         "See docs/architecture/external-api-contract.md for the full integration spec.",
       secured  : false,
       body     : jsonBody({
         required: ["success"],
         props   : {
-          success  : { type: "boolean", example: true },
-          outputUrl: str({ example: "https://cdn.example.com/result.mp4" }),
-          message  : str({ example: "GPU out of memory" }),
+          success      : { type: "boolean", example: true },
+          outputFileKey: str({ example: "generations/output/550e8400-e29b-41d4-a716-446655440000.mp4" }),
+          message      : str({ example: "GPU out of memory" }),
         },
       }),
       responses: {

@@ -9,15 +9,15 @@ export interface IGeneration {
   status        : TGenerationStatus;
   inputType     : TGenerationInputType;
   voiceId       : string;              // voice ID sent to the external API (always required)
-  avatarImage: string;              // R2 file key or external https:// URL
+  avatarImageKey: string;              // R2 file key (when uploaded) or external https:// URL (when provided via avatarImageUrl body field)
   inputText?    : string;              // required when inputType = text
-  inputAudio?   : string;              // R2 file key, required when inputType = audio
-  outputUrl?    : string;              // set by external API callback on success
-  errorMessage? : string;              // set on failure
-  completedAt?  : Date;
-  refImageFile? : Types.ObjectId;      // FileRecord ref for reference image (when uploaded)
-  audioFile?    : Types.ObjectId;      // FileRecord ref for input audio (when uploaded)
-  outputFile?   : Types.ObjectId;      // FileRecord ref for generation output
+  inputAudioKey?  : string;              // R2 file key, required when inputType = audio
+  outputFileKey?  : string;              // R2 file key set by callback on success; controller generates presigned URL at response time
+  errorMessage?   : string;              // set on failure
+  completedAt?    : Date;
+  avatarImageFile?: Types.ObjectId;      // FileRecord ref for uploaded avatar image
+  inputAudioFile? : Types.ObjectId;      // FileRecord ref for uploaded input audio
+  outputFile?     : Types.ObjectId;      // FileRecord ref for generation output
   createdAt     : Date;
   updatedAt     : Date;
 }
@@ -36,9 +36,9 @@ export type TCreateGenerationBody = {
 };
 
 export type TCallbackBody = {
-  success  : boolean;
-  outputUrl?: string;
-  message  ?: string;   // error detail when success=false
+  success       : boolean;
+  outputFileKey?: string;   // R2 object key of the generated output file
+  message?      : string;   // error detail when success=false
 };
 
 export type TListGenerationsPayload = IQueryItems<Partial<IGeneration>>;

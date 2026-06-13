@@ -13,7 +13,7 @@ import {
   TUpdateAvatarBody,
 } from "./types";
 
-const FILE_POPULATE = "fileUrl mimeType fileSize originalName folder";
+const FILE_POPULATE = "fileKey mimeType fileSize originalName folder";
 
 // Derive a URL-safe slug from a title string
 const toSlug = (title: string): string =>

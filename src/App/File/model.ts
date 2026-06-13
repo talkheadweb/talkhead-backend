@@ -9,7 +9,6 @@ const FileRecordSchema = new Schema<TFileRecordDocument>(
     type      : { type: String, enum: FileTypeValues, required: true, index: true },
     folder    : { type: String, required: true },
     fileKey   : { type: String, required: true, unique: true },
-    fileUrl   : { type: String, required: true },
     originalName: { type: String, required: true },
     mimeType  : { type: String, required: true },
     fileSize  : { type: Number, required: true },

@@ -7,7 +7,6 @@ export interface IFileRecord {
   type      : TFileType;
   folder    : string;
   fileKey   : string;
-  fileUrl   : string;
   originalName: string;
   mimeType  : string;
   fileSize  : number;
@@ -30,7 +29,6 @@ export interface TUploadPayload {
 
 export interface TTrackPayload extends TUploadPayload {
   fileKey     : string;
-  fileUrl     : string;
   originalName: string;
   mimeType    : string;
   fileSize    : number;

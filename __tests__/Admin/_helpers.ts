@@ -23,7 +23,7 @@ export const mockUserDoc = (overrides: Record<string, unknown> = {}) => ({
   role          : "user",
   isVerified    : true,
   isActive      : true,
-  profilePicture: null,
+  profilePictureKey: null,
   createdAt     : new Date().toISOString(),
   updatedAt     : new Date().toISOString(),
   toObject() { return { ...this }; },

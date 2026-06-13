@@ -44,7 +44,7 @@ const makeJob = (overrides = {}) => ({
   data: {
     type    : "generation",
     recordId,
-    payload : { voiceId: "af_heart", inputType: "text", avatarImage: "generations/images/uuid.jpg" },
+    payload : { voiceId: "af_heart", inputType: "text", avatarImageKey: "generations/images/uuid.jpg" },
   },
   ...overrides,
 } as any);

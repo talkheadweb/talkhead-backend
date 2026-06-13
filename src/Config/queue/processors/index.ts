@@ -24,7 +24,7 @@
  *   Every processor MUST follow this lifecycle:
  *     a. markProcessing(recordId)
  *     b. POST to external API — await the response
- *     c. Response { success: true,  outputUrl } → markCompleted(recordId, outputUrl)
+ *     c. Response { success: true,  outputFileKey } → markCompleted(recordId, outputFileKey)
  *        Response { success: false, message  } → markFailed(recordId, message) + throw
  *        Network / HTTP error                  → markFailed(recordId, msg)    + throw
  *        (throw causes BullMQ to retry up to 3× with exponential backoff)
