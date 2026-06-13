@@ -10,6 +10,7 @@ import config from "@/Config";
 import connectDB from "@/Config/db";
 import { RedisClient } from "@/Config/redis/connection";
 import { RedisEventClient } from "@/Config/redis/events";
+import { initSocket } from "@/Config/socket";
 import http from "http";
 import mongoose from "mongoose";
 import { LogService } from "./Config/logger/utils";
@@ -19,7 +20,8 @@ import "@/Config/redis/connection";
 import "@/Config/redis/events";
 
 const server = http.createServer(app);
-const log = LogService.APPLICATION;
+const io     = initSocket(server);        // must run before server.listen()
+const log    = LogService.APPLICATION;
 const { port } = config;
 
 const main = async () => {
@@ -54,7 +56,8 @@ const shutdown = async (signal: string, exitCode: number): Promise<void> => {
     process.exit(exitCode);
   }, 10_000).unref();
 
-  // Stop accepting new HTTP requests; drop idle keep-alive connections.
+  // Stop accepting new connections — HTTP and WebSocket.
+  io.close();
   server.closeAllConnections();
   server.close();
 

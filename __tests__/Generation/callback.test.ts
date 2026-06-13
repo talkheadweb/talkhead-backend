@@ -8,8 +8,14 @@ jest.mock("@/App/Core/Generation/model");
 jest.mock("@/App/File/service", () => ({
   FileService: {
     findByFileKey: jest.fn().mockResolvedValue(null),
-    buildUrl     : jest.fn((key: string) => `https://cdn.example.com/${key}`),
+    getUrlByKey  : jest.fn().mockResolvedValue("https://r2.example.com/signed-url"),
   },
+}));
+jest.mock("@/Config/socket", () => ({
+  getIO: jest.fn().mockReturnValue({
+    to  : jest.fn().mockReturnThis(),
+    emit: jest.fn(),
+  }),
 }));
 // @/Config/queue is mocked globally via jest.config moduleNameMapper
 
@@ -21,9 +27,10 @@ const MockModel = GenerationModel as jest.Mocked<typeof GenerationModel>;
 const apiKey    = () => ({ "x-api-key": config.queue.api_key });
 
 const makeDoc = (status = GenerationStatus.PROCESSING) => ({
-  _id: mockGenId,
+  _id   : mockGenId,
+  userId: "507f1f77bcf86cd799439011",
   status,
-  lean: jest.fn().mockReturnThis(),
+  lean  : jest.fn().mockReturnThis(),
 });
 
 describe("POST /generations/:id/callback", () => {

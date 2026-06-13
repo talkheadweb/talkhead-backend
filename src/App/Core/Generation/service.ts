@@ -5,6 +5,9 @@ import { calculatePagination, manageSorting, MongoQueryHelper } from "@/Utils/he
 import CustomError from "@/Utils/errors/customError.class";
 import { LogService } from "@/Config/logger/utils";
 import { FileService } from "@/App/File/service";
+import { getIO } from "@/Config/socket";
+import { SocketEvent } from "@/Config/socket/events";
+import type { TGenerationUpdatePayload } from "@/Config/socket/events";
 import GenerationModel from "./model";
 import { GenerationStatus } from "./const";
 import type { IGeneration, TCallbackBody, TCreateGenerationBody, TListGenerationsPayload } from "./types";
@@ -202,17 +205,51 @@ const markFailed = async (recordId: string, errorMessage: string): Promise<void>
   });
 };
 
+// ── Socket emit helper ─────────────────────────────────────────────────────
+// Fire-and-forget — a socket failure must never crash the callback handler.
+const emitToUser = (userId: string, payload: TGenerationUpdatePayload): void => {
+  try {
+    getIO().to(`user:${userId}`).emit(SocketEvent.GENERATION_UPDATE, payload);
+  } catch {
+    LogService.APPLICATION.warn("Socket emit failed — user may be offline", {
+      userId,
+      generationId: payload.generationId,
+    });
+  }
+};
+
 // ── External API callback ──────────────────────────────────────────────────
 const handleCallback = async (id: string, body: TCallbackBody): Promise<void> => {
   const doc = await GenerationModel.findById(id).lean();
   if (!doc) throw new CustomError("Generation record not found.", 404);
 
+  const userId = String(doc.userId);
+
   if (body.success) {
     await markCompleted(id, body.outputFileKey);
     LogService.APPLICATION.info("Generation completed via callback", { recordId: id });
+
+    // Resolve presigned URL so the frontend can use it immediately
+    const outputUrl = body.outputFileKey
+      ? await FileService.getUrlByKey(body.outputFileKey).catch(() => undefined)
+      : undefined;
+
+    emitToUser(userId, {
+      generationId : id,
+      status       : "completed",
+      outputFileKey: body.outputFileKey,
+      outputUrl,
+    });
   } else {
-    await markFailed(id, body.message ?? "External API processing did not succeed.");
+    const errorMessage = body.message ?? "External API processing did not succeed.";
+    await markFailed(id, errorMessage);
     LogService.APPLICATION.warn("Generation failed via callback", { recordId: id });
+
+    emitToUser(userId, {
+      generationId: id,
+      status      : "failed",
+      errorMessage,
+    });
   }
 };
 
