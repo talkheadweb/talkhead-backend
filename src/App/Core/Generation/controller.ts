@@ -134,7 +134,7 @@ const remove = catchAsync(async (req: Request, res: Response) => {
   sendResponse.success(res, { statusCode: 200, message: "Generation deleted.", data: result, req });
 });
 
-// ── Kokoro callback — POST /:id/callback (x-api-key protected) ────────────
+// ── External API callback — POST /:id/callback (x-api-key protected) ────────
 const callback = catchAsync(async (req: Request, res: Response) => {
   await GenerationService.handleCallback(req.params["id"] as string, req.body);
   sendResponse.success(res, { statusCode: 200, message: "Callback processed.", data: null, req });

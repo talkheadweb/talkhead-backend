@@ -1,6 +1,6 @@
 # Generation Module
 
-Manages AI generation jobs powered by the Kokoro TTS engine. A user submits a request with a voice ID, reference image, and either text or audio input. The server creates a MongoDB record, enqueues a BullMQ job (also persisted in `QueueJob`), and the worker calls the external API and awaits the response directly — saving `outputUrl` on success or `errorMessage` on failure.
+Manages AI generation jobs. A user submits a request with a voice ID, reference image, and either text or audio input. The server creates a MongoDB record, enqueues a BullMQ job (also persisted in `QueueJob`), and the worker calls the external API and awaits the response directly — saving `outputUrl` on success or `errorMessage` on failure.
 
 Input files uploaded to R2 are tracked as `FileRecord` documents with `ownerId` set to the generation `_id`. The output file is tracked via `markCompleted` when the callback arrives. File reference ObjectIds (`refImageFile`, `audioFile`, `outputFile`) are stored on the generation document as optional links for cross-module traceability.
 
@@ -16,7 +16,7 @@ Input files uploaded to R2 are tracked as `FileRecord` documents with `ownerId` 
 | `PATCH` | `/api/v1/generations/:id` | Update status / result fields | Bearer token (admin only) |
 | `PATCH` | `/api/v1/generations/:id/cancel` | Cancel a pending job | Bearer token (owner or admin) |
 | `DELETE` | `/api/v1/generations/:id` | Hard delete a record | Bearer token (admin only) |
-| `POST` | `/api/v1/generations/:id/callback` | Kokoro callback — mark complete or failed | `x-api-key` header (no JWT) |
+| `POST` | `/api/v1/generations/:id/callback` | External API callback — mark complete or failed | `x-api-key` header (no JWT) |
 
 ---
 
@@ -31,7 +31,7 @@ Input files uploaded to R2 are tracked as `FileRecord` documents with `ownerId` 
 | Field | Type | Required | Rules |
 |-------|------|----------|-------|
 | `inputType` | `"text" \| "audio"` | ✅ | Determines which input field is used |
-| `voiceId` | `string` | ✅ | Kokoro voice ID (e.g. `af_heart`) |
+| `voiceId` | `string` | ✅ | Voice ID for the external API (e.g. `af_heart`) |
 | `inputText` | `string` (max 5000) | Required if `inputType=text` | Text to synthesise |
 | `avatarImageUrl` | `string` (URL) | Required if no `avatarImage` file | Reference image as URL |
 | `avatarImage` | file | Required if no `avatarImageUrl` | JPEG/PNG, max **5 MB** |
@@ -141,11 +141,11 @@ Hard-deletes the MongoDB record. Does not attempt R2 file cleanup (files are tra
 
 ---
 
-## Kokoro Callback
+## External API Callback
 
 **POST** `/api/v1/generations/:id/callback`
 
-Called by the Kokoro backend when async processing finishes. **No JWT required** — secured by `x-api-key` header.
+Called by the external API when async processing finishes. **No JWT required** — secured by `x-api-key` header.
 
 ### Request Body
 
@@ -172,7 +172,7 @@ When `success=true` and `outputUrl` is provided, `markCompleted` tracks the outp
 1. **Status flow:** `pending` → `processing` → `completed` | `failed`; cancellable from `pending` only
 2. **Ownership:** users see and cancel only their own jobs; admins have full access
 3. **File rules:** `avatarImage` always required (file or URL); `inputAudio` required only when `inputType=audio`
-4. **voiceId always required:** every generation needs a Kokoro voice — no default
+4. **voiceId always required:** every generation needs a voice ID — no default
 5. **File refs are async:** `refImageFile`, `audioFile`, `outputFile` are set fire-and-forget after the main response — poll the GET endpoint if you need them
 6. **Queue persistence:** every enqueued job is also stored in the `QueueJob` MongoDB collection via `QueueUtil.enqueue` — durable even if Redis is flushed
 7. **Retry policy:** BullMQ retries a failed external API call 3× with exponential backoff (2 s, 4 s, 8 s)
@@ -187,7 +187,7 @@ The queue processor (`Config/queue/processors/generation.processor.ts`) never to
 | Method | When called | What it does |
 |--------|-------------|--------------|
 | `GenerationService.markProcessing(recordId)` | Worker picks up job | `status → PROCESSING` |
-| `GenerationService.markFailed(recordId, msg)` | Kokoro API call fails | `status → FAILED` + `errorMessage` |
+| `GenerationService.markFailed(recordId, msg)` | External API call fails | `status → FAILED` + `errorMessage` |
 | `GenerationService.markCompleted(id, url?)` | API response `success=true` | `status → COMPLETED` + `outputUrl` + `completedAt` + tracks `outputFile` ref |
 | `GenerationService.setFileRefs(id, refs)` | After input file upload+track | Stores `refImageFile` / `audioFile` ObjectId refs |
 

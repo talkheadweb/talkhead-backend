@@ -8,11 +8,11 @@ export interface IGeneration {
   queueJobId?   : Types.ObjectId;      // ref → QueueJob._id (set after enqueue)
   status        : TGenerationStatus;
   inputType     : TGenerationInputType;
-  voiceId       : string;              // Kokoro voice ID (always required)
+  voiceId       : string;              // voice ID sent to the external API (always required)
   avatarImage: string;              // R2 file key or external https:// URL
   inputText?    : string;              // required when inputType = text
   inputAudio?   : string;              // R2 file key, required when inputType = audio
-  outputUrl?    : string;              // set by Kokoro callback on success
+  outputUrl?    : string;              // set by external API callback on success
   errorMessage? : string;              // set on failure
   completedAt?  : Date;
   refImageFile? : Types.ObjectId;      // FileRecord ref for reference image (when uploaded)

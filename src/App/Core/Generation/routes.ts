@@ -14,7 +14,7 @@ import {
 
 const generationRouter = Router();
 
-// ── Kokoro callback — no user auth, API key only ───────────────────────────
+// ── External API callback — no user auth, API key only ────────────────────
 // Registered before `authenticate` so it is not guarded by JWT.
 generationRouter.post(
   "/:id/callback",

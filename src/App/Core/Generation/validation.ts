@@ -31,7 +31,7 @@ export const updateGenerationSchema = z.object({
   }),
 });
 
-// ── Kokoro callback — called by external backend ───────────────────────────
+// ── External API callback ──────────────────────────────────────────────────
 export const callbackGenerationSchema = z.object({
   body: z.object({
     success  : z.boolean({ required_error: "success is required" }),

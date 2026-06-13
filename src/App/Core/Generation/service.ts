@@ -229,7 +229,7 @@ const markFailed = async (recordId: string, errorMessage: string): Promise<void>
   });
 };
 
-// ── Kokoro callback — called by the external Kokoro backend ────────────────
+// ── External API callback ──────────────────────────────────────────────────
 const handleCallback = async (id: string, body: TCallbackBody): Promise<void> => {
   const doc = await GenerationModel.findById(id).lean();
   if (!doc) throw new CustomError("Generation record not found.", 404);
@@ -238,7 +238,7 @@ const handleCallback = async (id: string, body: TCallbackBody): Promise<void> =>
     await markCompleted(id, body.outputUrl);
     LogService.APPLICATION.info("Generation completed via callback", { recordId: id });
   } else {
-    await markFailed(id, "Kokoro processing did not succeed.");
+    await markFailed(id, "External API processing did not succeed.");
     LogService.APPLICATION.warn("Generation failed via callback", { recordId: id });
   }
 };

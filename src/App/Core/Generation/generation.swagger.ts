@@ -157,9 +157,9 @@ export const generationPaths = {
 
   "/generations/{id}/callback": {
     ...post({
-      summary    : "Kokoro callback — mark generation complete or failed",
+      summary    : "External API callback — mark generation complete or failed",
       description:
-        "Called by the Kokoro backend when processing finishes. " +
+        "Called by the external API when processing finishes. " +
         "Secured by x-api-key header (not a user JWT). " +
         "success=true sets status to completed and stores outputUrl. " +
         "success=false sets status to failed.",
