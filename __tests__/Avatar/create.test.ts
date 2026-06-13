@@ -13,15 +13,16 @@ jest.mock("@/App/Avatar/model", () => ({
   },
 }));
 
-jest.mock("@/Utils/file/upload", () => ({
-  ...jest.requireActual("@/Utils/file/upload"),
-  uploadGenericFile: jest.fn().mockResolvedValue({
-    fileKey     : "avatars/test-uuid.jpg",
-    fileUrl     : "https://cdn.example.com/avatars/test-uuid.jpg",
-    mimeType    : "image/jpeg",
-    fileSize    : 1024,
-    originalName: "test.jpg",
-  }),
+jest.mock("@/App/File/service", () => ({
+  FileService: {
+    upload: jest.fn().mockResolvedValue({
+      fileKey     : "avatars/test-uuid.jpg",
+      fileUrl     : "https://cdn.example.com/avatars/test-uuid.jpg",
+      mimeType    : "image/jpeg",
+      fileSize    : 1024,
+      originalName: "test.jpg",
+    }),
+  },
 }));
 
 import AvatarModel from "@/App/Avatar/model";

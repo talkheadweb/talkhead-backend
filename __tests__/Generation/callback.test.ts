@@ -40,6 +40,7 @@ describe("POST /generations/:id/callback", () => {
       expect.objectContaining({
         $set: expect.objectContaining({ status: GenerationStatus.COMPLETED }),
       }),
+      expect.any(Object),
     );
   });
 

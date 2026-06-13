@@ -3,8 +3,8 @@ import catchAsync from "@/Utils/helper/catchAsync";
 import { sendResponse } from "@/Utils/helper/sendResponse";
 import validateRequest from "@/Middlewares/validateRequest";
 import { queryOptimization } from "@/Utils/helper/queryOptimize";
-import { uploadGenericFile } from "@/Utils/file/upload";
-import { AVATAR_R2_FOLDER } from "./const";
+import { FileService } from "@/App/File/service";
+import { FileType } from "@/App/File/const";
 import { AvatarFilterKeys, AvatarExtraFilterKeys, IAvatar } from "./types";
 import { AvatarService } from "./service";
 import { createAvatarSchema, updateAvatarSchema } from "./validation";
@@ -17,8 +17,8 @@ export const validateCreateAvatar = validateRequest(createAvatarSchema);
 const create = catchAsync(async (req: Request, res: Response) => {
   if (!req.file) throw new CustomError("Avatar image file is required.", 400);
 
-  const uploadResult = await uploadGenericFile(req.file, AVATAR_R2_FOLDER);
-  const avatar = await AvatarService.create(req.user!.uid, req.body, uploadResult);
+  const fileRecord = await FileService.upload(req.file, req, { type: FileType.AVATAR_IMAGE });
+  const avatar = await AvatarService.create(req.user!.uid, req.body, fileRecord);
 
   sendResponse.success(res, { statusCode: 201, message: "Avatar created.", data: avatar, req });
 });

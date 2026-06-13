@@ -18,6 +18,7 @@ import { adminPaths      } from "@/App/Admin/admin.swagger";
 import { queuePaths      } from "@/App/Queue/queue.swagger";
 import { generationPaths } from "@/App/Core/Generation/generation.swagger";
 import { avatarPaths      } from "@/App/Avatar/avatar.swagger";
+import { filePaths        } from "@/App/File/file.swagger";
 
 // ── Reusable schema components ─────────────────────────────────────────────
 const components = {
@@ -103,6 +104,7 @@ export const swaggerSpec = {
     { name: "Queue",       description: "Queue job management — API key protected. Used by external services to create and manage queue jobs." },
     { name: "Generation",  description: "AI generation jobs — create, track, and manage audio/video generation requests." },
     { name: "Avatar",      description: "Avatar image management — upload and manage AI avatar images stored in Cloudflare R2." },
+    { name: "File",        description: "File record management — browse, inspect, and delete tracked file uploads." },
     // Add a tag here for each new module
   ],
   components,
@@ -113,6 +115,7 @@ export const swaggerSpec = {
     ...queuePaths,
     ...generationPaths,
     ...avatarPaths,
+    ...filePaths,
     // ...featurePaths,  ← spread new module paths here
   },
 };

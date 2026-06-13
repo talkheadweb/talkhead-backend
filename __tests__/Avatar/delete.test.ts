@@ -9,9 +9,10 @@ jest.mock("@/App/Avatar/model", () => ({
   },
 }));
 
-jest.mock("@/Utils/file/upload", () => ({
-  ...jest.requireActual("@/Utils/file/upload"),
-  deleteFromR2: jest.fn().mockResolvedValue(undefined),
+jest.mock("@/App/File/service", () => ({
+  FileService: {
+    deleteByKey: jest.fn().mockResolvedValue(undefined),
+  },
 }));
 
 import AvatarModel from "@/App/Avatar/model";

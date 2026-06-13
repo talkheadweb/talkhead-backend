@@ -16,6 +16,7 @@ const config: Config = {
     "^@/Config/queue$"           : "<rootDir>/__tests__/_mocks/queueConfig.ts",
     "^@/App/Queue/model$"        : "<rootDir>/__tests__/_mocks/appQueueModel.ts",
     "^@/App/Avatar/model$"       : "<rootDir>/__tests__/_mocks/appAvatarModel.ts",
+    "^@/App/File/model$"         : "<rootDir>/__tests__/_mocks/appFileModel.ts",
     "^@/(.*)$"                   : "<rootDir>/src/$1",
   },
 

@@ -1,9 +1,12 @@
+import path from "path";
 import { Types } from "mongoose";
 import { QueueUtil } from "@/Config/queue";
 import { QueueJobType } from "@/Config/queue/const";
 import { calculatePagination, manageSorting, MongoQueryHelper } from "@/Utils/helper/queryOptimize";
 import CustomError from "@/Utils/errors/customError.class";
 import { LogService } from "@/Config/logger/utils";
+import { FileService } from "@/App/File/service";
+import { FileType } from "@/App/File/const";
 import GenerationModel from "./model";
 import { GenerationStatus } from "./const";
 import type { IGeneration, TCallbackBody, TCreateGenerationBody, TListGenerationsPayload } from "./types";
@@ -166,13 +169,41 @@ const markProcessing = async (recordId: string): Promise<void> => {
 };
 
 const markCompleted = async (recordId: string, outputUrl?: string): Promise<void> => {
-  await GenerationModel.findByIdAndUpdate(recordId, {
-    $set: {
-      status     : GenerationStatus.COMPLETED,
-      completedAt: new Date(),
-      ...(outputUrl ? { outputUrl } : {}),
-    },
-  });
+  const doc = await GenerationModel.findByIdAndUpdate(
+    recordId,
+    { $set: { status: GenerationStatus.COMPLETED, completedAt: new Date(), ...(outputUrl ? { outputUrl } : {}) } },
+    { new: false, lean: true },   // return the pre-update doc so we have userId
+  );
+
+  // Track the output file in FileRecord (fire-and-forget — non-critical)
+  if (outputUrl && doc?.userId) {
+    const ext  = path.extname(outputUrl).toLowerCase();
+    const mime = videoMimeFromExt(ext) ?? "application/octet-stream";
+    FileService.track(String(doc.userId), {
+      type        : FileType.GENERATION,
+      fileKey     : outputUrl,
+      fileUrl     : outputUrl,
+      originalName: path.basename(outputUrl) || `output_${recordId}${ext}`,
+      mimeType    : mime,
+      fileSize    : 0,   // unknown — file lives on external service
+      ownerId     : recordId,
+    }).catch(() => {});
+  }
+};
+
+const videoMimeFromExt = (ext: string): string | undefined => {
+  const map: Record<string, string> = {
+    ".mp4" : "video/mp4",
+    ".mpeg": "video/mpeg",
+    ".mpg" : "video/mpeg",
+    ".mov" : "video/quicktime",
+    ".webm": "video/webm",
+    ".avi" : "video/x-msvideo",
+    ".mp3" : "audio/mpeg",
+    ".wav" : "audio/wav",
+    ".m4a" : "audio/x-m4a",
+  };
+  return map[ext];
 };
 
 const markFailed = async (recordId: string, errorMessage: string): Promise<void> => {

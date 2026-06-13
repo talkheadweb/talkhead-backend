@@ -5,6 +5,8 @@ import { sendResponse } from "@/Utils/helper/sendResponse";
 import { queryOptimization } from "@/Utils/helper/queryOptimize";
 import CustomError from "@/Utils/errors/customError.class";
 import { generateR2Key, uploadFileToR2 } from "@/Utils/file/upload";
+import { FileService } from "@/App/File/service";
+import { FileType } from "@/App/File/const";
 import { GenerationService } from "./service";
 import { GenerationFilterKeys, GenerationExtraFilterKeys, IGeneration } from "./types";
 
@@ -48,13 +50,37 @@ const create = catchAsync(async (req: Request, res: Response) => {
     audioKey,
   });
 
-  // Upload files to R2 only after successful enqueue
+  // Upload files to R2 only after successful enqueue, then track each as a FileRecord
   const uploads: Promise<void>[] = [];
   if (refImageFile && refImageKey) {
-    uploads.push(uploadFileToR2(refImageFile.path, refImageKey, refImageFile.mimetype));
+    uploads.push(
+      uploadFileToR2(refImageFile.path, refImageKey, refImageFile.mimetype).then(() => {
+        FileService.track(req.user!.uid, {
+          type        : FileType.GENERATION,
+          fileKey     : refImageKey,
+          fileUrl     : refImageKey,
+          originalName: refImageFile.originalname,
+          mimeType    : refImageFile.mimetype,
+          fileSize    : refImageFile.size,
+          ownerId     : String(result._id),
+        }).catch(() => {});
+      }),
+    );
   }
   if (audioFile && audioKey) {
-    uploads.push(uploadFileToR2(audioFile.path, audioKey, audioFile.mimetype));
+    uploads.push(
+      uploadFileToR2(audioFile.path, audioKey, audioFile.mimetype).then(() => {
+        FileService.track(req.user!.uid, {
+          type        : FileType.GENERATION,
+          fileKey     : audioKey,
+          fileUrl     : audioKey,
+          originalName: audioFile.originalname,
+          mimeType    : audioFile.mimetype,
+          fileSize    : audioFile.size,
+          ownerId     : String(result._id),
+        }).catch(() => {});
+      }),
+    );
   }
   await Promise.all(uploads);
 

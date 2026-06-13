@@ -5,6 +5,8 @@ import path from "path";
 import { v4 as uuidv4 } from 'uuid';
 import { allowedMimes, allowedGenerationImageMimes, allowedGenerationAudioMimes } from "./type";
 import CustomError from '../errors/customError.class';
+import { FileTypeConfig } from "@/App/File/const";
+import type { TFileType } from "@/App/File/const";
 
 // Create the temp-uploads directory once at module load time, not on each request.
 // This avoids a synchronous fs check on every multipart upload.
@@ -70,3 +72,17 @@ export const avatarUpload = multer({
     fileFilter: avatarFileFilter,
     limits    : { fileSize: 5 * 1024 * 1024 },
 });
+
+// ── General upload — accepts all mimes up to 50 MB (mime/size validated in controller) ─
+export const fileUpload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } });
+
+// ── Generic factory driven by FileTypeConfig ──────────────────────────────
+// Use for single-file uploads. For multi-field (generation), keep generationUpload.
+export const createUpload = (type: TFileType) => {
+    const cfg = FileTypeConfig[type];
+    const filter: multer.Options["fileFilter"] = (_req, file, cb) => {
+        if (cfg.allowedMimes.includes(file.mimetype)) cb(null, true);
+        else cb(new CustomError(`File type ${file.mimetype} is not allowed for ${type}`, 400));
+    };
+    return multer({ storage, fileFilter: filter, limits: { fileSize: cfg.maxSizeBytes } });
+};

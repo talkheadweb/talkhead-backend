@@ -141,18 +141,22 @@ Hard-deletes the MongoDB record and removes the file from Cloudflare R2 (fire-an
 
 ---
 
-## `uploadGenericFile` Utility
+## FileService
 
-All avatar uploads (and any future module needing file storage) should use the shared utility in `src/Utils/file/upload.ts`:
+Avatar uploads use `FileService.upload()` from `src/App/File/service.ts`. Deletes use `FileService.deleteByKey()`.
 
 ```ts
-import { uploadGenericFile } from "@/Utils/file/upload";
+import { FileService } from "@/App/File/service";
+import { FileType } from "@/App/File/const";
 
-const result = await uploadGenericFile(req.file, "my-folder");
-// result: { fileKey, fileUrl, mimeType, fileSize, originalName }
+// In avatar controller create handler:
+const fileRecord = await FileService.upload(req.file, req, { type: FileType.AVATAR_IMAGE });
+
+// In avatar service remove handler:
+FileService.deleteByKey(doc.fileKey).catch(() => {});
 ```
 
-The key is always `<folder>/<uuid><ext>`. Pass the `Express.Multer.File` object directly — the function reads `file.path`, `file.mimetype`, `file.size`, and `file.originalname`, uploads to R2, deletes the temp file, and returns the metadata.
+See [`docs/features/file.md`](file.md) for full FileService API reference.
 
 ---
 

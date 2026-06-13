@@ -1,7 +1,8 @@
 import { Types } from "mongoose";
 import { calculatePagination, manageSorting, MongoQueryHelper } from "@/Utils/helper/queryOptimize";
 import CustomError from "@/Utils/errors/customError.class";
-import { deleteFromR2, GenericUploadResult } from "@/Utils/file/upload";
+import { FileService } from "@/App/File/service";
+import type { IFileRecord } from "@/App/File/types";
 import AvatarModel from "@/App/Avatar/model";
 import {
   AvatarFilterKeys,
@@ -25,7 +26,7 @@ const toSlug = (title: string): string =>
 const create = async (
   userId    : string,
   body      : TCreateAvatarBody,
-  uploadResult: GenericUploadResult,
+  fileRecord: IFileRecord,
 ) => {
   const slug = body.slug ?? toSlug(body.title);
 
@@ -35,11 +36,11 @@ const create = async (
   return AvatarModel.create({
     title       : body.title,
     slug,
-    fileKey     : uploadResult.fileKey,
-    fileUrl     : uploadResult.fileUrl,
-    mimeType    : uploadResult.mimeType,
-    fileSize    : uploadResult.fileSize,
-    originalName: uploadResult.originalName,
+    fileKey     : fileRecord.fileKey,
+    fileUrl     : fileRecord.fileUrl,
+    mimeType    : fileRecord.mimeType,
+    fileSize    : fileRecord.fileSize,
+    originalName: fileRecord.originalName,
     isActive    : true,
     createdBy   : new Types.ObjectId(userId),
   });
@@ -115,8 +116,8 @@ const update = async (id: string, body: TUpdateAvatarBody) => {
 const remove = async (id: string) => {
   const doc = await AvatarModel.findByIdAndDelete(id).lean();
   if (!doc) throw new CustomError("Avatar not found.", 404);
-  // Clean up R2 file (non-critical — don't throw if it fails)
-  deleteFromR2(doc.fileKey).catch(() => {});
+  // Clean up R2 file and FileRecord (non-critical — don't throw if it fails)
+  FileService.deleteByKey(doc.fileKey).catch(() => {});
   return doc;
 };
 

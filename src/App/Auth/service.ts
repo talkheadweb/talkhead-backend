@@ -4,7 +4,9 @@ import CustomError from "@/Utils/errors/customError.class";
 import { HashHelper } from "@/Utils/helper/hashHelper";
 import { JwtHelper } from "@/Utils/helper/jwtHelper";
 import { MailUtils } from "@/Utils/mail/resend";
-import { deleteFromR2, getPresignedUrl, uploadProfileImageToR2 } from "@/Utils/file/upload";
+import { getPresignedUrl, uploadProfileImageToR2 } from "@/Utils/file/upload";
+import { FileService } from "@/App/File/service";
+import { FileType } from "@/App/File/const";
 import { v4 as uuidv4 } from "uuid";
 import UserModel from "./model";
 import { AuthRedisService, TSocialCodePayload } from "./redisService";
@@ -355,12 +357,23 @@ const updateProfile = async (
     // Upload new image first, then delete the old one.
     // Order matters: if the upload fails we throw before touching R2, leaving
     // the user's current picture intact.
-    const { fileUrl } = await uploadProfileImageToR2(file.path, file.originalname);
+    const { fileKey, fileUrl } = await uploadProfileImageToR2(file.path, file.originalname);
     updates.profilePicture = fileUrl;
 
-    // Delete old picture + invalidate its presigned URL cache after a successful upload
+    // Track the upload in FileRecord (non-critical, fire-and-forget)
+    FileService.track(userId, {
+      type        : FileType.PROFILE_PICTURE,
+      fileKey,
+      fileUrl,
+      originalName: file.originalname,
+      mimeType    : "image/webp",
+      fileSize    : 0,
+      ownerId     : userId,
+    }).catch(() => {});
+
+    // Delete old picture (R2 + FileRecord) + invalidate presigned URL cache
     if (existing.profilePicture) {
-      deleteFromR2(existing.profilePicture).catch(() => {
+      FileService.deleteByRef(existing.profilePicture).catch(() => {
         log.warn("Could not delete old profile picture", { userId, url: existing.profilePicture });
       });
       // Only bare file keys have cached presigned URLs; HTTP URLs (Google etc.) are never cached
