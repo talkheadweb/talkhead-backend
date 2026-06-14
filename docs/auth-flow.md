@@ -360,9 +360,13 @@ is created. On every `GET /auth/me` (and `login` / `updateProfile`), `resolvePro
 
 ---
 
-## 3. Shared token resolution — `resolveSession()`
+## 3. Shared token resolution — `resolveSession()` and `resolveSocketSession()`
 
-Both HTTP (`authenticate` middleware) and Socket.io (`socketAuthMiddleware`) delegate to the same function:
+HTTP and Socket.io use **different** resolution functions because only HTTP can issue new cookies.
+
+### 3a. HTTP — `resolveSession()`
+
+Used by the `authenticate` middleware for all REST endpoints.
 
 ```ts
 // src/App/Auth/utils.ts
@@ -370,14 +374,44 @@ resolveSession(accessToken?, refreshToken?) → TResolvedSession
 ```
 
 Resolution order:
-1. **Valid access token** → return immediately (no Redis check needed)
-2. **Expired access token** → fall back to refresh token
-3. **Refresh token** → verify JWT + Redis revocation check (`auth:refresh:<userId>`)
-4. **No valid token** → throw `"Authentication required."`
+1. **Access token valid** → return immediately (no Redis check needed)
+2. **Access token invalid or expired** (any error) → fall through to refresh token
+3. **Refresh token** → verify JWT + Redis revocation check (`auth:refresh:<userId>`) → return session
+4. **No valid token** → throw `"Session expired. Please log in again."`
 
 The `authenticate` HTTP middleware also writes a new `Set-Cookie: access_token` when the session was refreshed (`session.refreshed === true`), so the browser gets an updated token transparently.
 
-The socket middleware does not issue a new cookie — the socket simply continues with refresh-token identity until the next HTTP request refreshes the access token.
+### 3b. Socket.io — `resolveSocketSession()`
+
+Used by `socketAuthMiddleware` in `src/Config/socket/middleware.ts`. Skips the Redis revocation check.
+
+```ts
+// src/App/Auth/utils.ts
+resolveSocketSession(accessToken?, refreshToken?) → TResolvedSession
+```
+
+Resolution order:
+1. **Access token valid** → return immediately
+2. **Access token invalid or expired** → fall through to refresh token
+3. **Refresh token** → verify JWT signature + expiry **only** (no Redis check) → return session
+4. **No valid token** → throw `"Authentication required."`
+
+**Why no Redis check for sockets?**
+
+The Redis check exists to enforce logout revocation — after `POST /auth/logout`, the refresh token is deleted from Redis so it can't be used again. However, requiring this check on the socket transport causes false rejections in legitimate scenarios:
+
+- Redis is momentarily unreachable (restart, network blip)
+- A token rotation race: the access token expired, the frontend is mid-refresh via HTTP, and the socket reconnects in the gap before the new token is in Redis
+- Redis state was cleared during a deploy
+
+The socket transport has no mechanism to issue a new cookie mid-connection, so it cannot recover from these failures the way HTTP can. The 7-day JWT expiry on the refresh token provides the time-bound guarantee.
+
+**If hard revocation is needed** (e.g. admin kick, forced logout of a specific user), use:
+```ts
+io.in(`user:${userId}`).disconnectSockets();
+```
+
+The socket middleware does not issue a new cookie — the socket continues with refresh-token identity until the next HTTP request refreshes the access token.
 
 ---
 

@@ -57,9 +57,12 @@ works and no domain override is needed locally.
 
 ### Auth resolution order (server-side)
 
-1. `access_token` cookie — valid → accept
-2. `access_token` expired → fall back to `refresh_token` cookie → verify + Redis revocation check → accept
-3. No valid token in any cookie → reject with `"Authentication required."` (client receives `connect_error`)
+The socket auth path (`resolveSocketSession()`) differs from HTTP (`resolveSession()`) — it skips the Redis revocation check to avoid blocking legitimate users during token rotation races or transient Redis issues (see `docs/auth-flow.md` section 3b for the full rationale).
+
+1. `access_token` cookie — valid JWT → accept
+2. `access_token` invalid or expired → fall back to `refresh_token` cookie
+3. `refresh_token` — verify JWT signature + expiry **only** (no Redis check) → accept
+4. No valid token in any cookie → reject with `"Authentication required."` (client receives `connect_error`)
 
 > Note: the server does **not** issue a new cookie during the socket handshake (that happens on the next HTTP request). A silently-refreshed socket simply continues with the refresh-token identity until a new access token is issued.
 
@@ -195,6 +198,19 @@ useEffect(() => {
 `status` values: `"disconnected"` | `"connecting"` | `"connected"` | `"error"`
 
 The underlying hook (`useGenerationSocket`) lives at `src/hooks/useGenerationSocket.ts` — it is used exclusively by `SocketProvider`. Do not call it directly from components.
+
+### Auth error recovery flow (frontend)
+
+When the socket receives a `connect_error` with an auth-related message (matches `/expired|authentication required|invalid.*token/i`):
+
+1. Fire `GET /api/v1/auth/me` through the Next.js proxy (`credentials: "include"`).
+   The `authenticate` middleware issues a new `Set-Cookie: access_token` if the `refresh_token` cookie is still valid.
+2. **HTTP refresh succeeded** → create a fresh socket connection (now has the updated access token cookie). The auth failure counter resets to 0.
+3. **HTTP refresh also failed** → increment the auth failure counter.
+4. After **3 consecutive HTTP refresh failures** → call `socket.disconnect()` and set `sessionExpired = true`.
+5. `SocketProvider` renders `SessionExpiredModal` which offers "Log in again" (→ `/login`) or "Retry" (resets counter and reconnects).
+
+Non-auth errors (network outage, CORS) are handled entirely by socket.io's built-in reconnection logic (up to **5 attempts**, exponential backoff 2 s → 10 s). The auth recovery path described above is separate and does not consume those retry slots.
 
 ---
 

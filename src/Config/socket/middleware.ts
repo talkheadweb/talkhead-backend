@@ -12,8 +12,8 @@ const log = LogService.AUTH;
  * The handshake is a standard HTTP upgrade request so the browser sends all
  * cookies automatically. No token needs to be passed explicitly from the client.
  *
- * Delegates auth logic to resolveSession() — the same utility used by the HTTP
- * authenticate middleware — so both transports share one token resolution path.
+ * Delegates auth logic to resolveSocketSession() — a variant of resolveSession()
+ * that skips the Redis revocation check (see docs/auth-flow.md §3b for why).
  *
  * Note: no new cookie is issued here (WebSocket has no Set-Cookie). The next
  * HTTP request will trigger a silent refresh if the access token has expired.
