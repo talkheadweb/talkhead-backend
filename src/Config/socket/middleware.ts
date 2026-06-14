@@ -1,7 +1,7 @@
 import type { Socket } from "socket.io";
 import { parse as parseCookies } from "cookie";
 import { ACCESS_COOKIE_NAME, REFRESH_COOKIE_NAME } from "@/App/Auth/const";
-import { resolveSession } from "@/App/Auth/utils";
+import { resolveSocketSession } from "@/App/Auth/utils";
 import { LogService } from "@/Config/logger/utils";
 
 const log = LogService.AUTH;
@@ -49,7 +49,7 @@ export const socketAuthMiddleware = async (
   }
 
   try {
-    const session = await resolveSession(accessToken, refreshToken);
+    const session = await resolveSocketSession(accessToken, refreshToken);
 
     socket.data.userId = session.uid;
     socket.data.email  = session.email;
