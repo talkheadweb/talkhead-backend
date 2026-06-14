@@ -10,17 +10,23 @@ Authenticated users can open a persistent WebSocket connection to receive real-t
 
 **Transport:** WebSocket (with polling fallback)
 
-**Auth:** pass the JWT access token in the socket handshake `auth` object:
+**Auth:** cookies — the browser sends the `access_token` and `refresh_token` httpOnly cookies automatically on the WebSocket handshake (the upgrade is a standard HTTP request). **No client-side token passing is required.**
 
 ```ts
 import { io } from "socket.io-client";
 
 const socket = io("http://localhost:9000", {
-  auth: { token: accessToken },
+  withCredentials: true,   // send cookies cross-origin
 });
 ```
 
-If the token is missing or invalid the server rejects the handshake immediately (the client receives a `connect_error` event) — no socket is opened.
+### Auth resolution order (server-side)
+
+1. `access_token` cookie — valid → accept
+2. `access_token` expired → fall back to `refresh_token` cookie → verify + Redis revocation check → accept
+3. No valid token in any cookie → reject with `"Authentication required."` (client receives `connect_error`)
+
+> Note: the server does **not** issue a new cookie during the socket handshake (that happens on the next HTTP request). A silently-refreshed socket simply continues with the refresh-token identity until a new access token is issued.
 
 ---
 
@@ -102,15 +108,17 @@ The socket server uses the same `CORS_ALLOWED_ORIGINS` env var as the REST API. 
 CORS_ALLOWED_ORIGINS=http://localhost:3000,https://app.yourdomain.com
 ```
 
+Ensure `credentials: true` is set in the Socket.io CORS config (already done in `src/Config/socket/index.ts`) so cookies are accepted on cross-origin connections.
+
 ---
 
 ## Security notes
 
 | Concern | How it is handled |
 |---|---|
-| Authentication | JWT access token in handshake — verified on every new connection |
-| Authorisation | Events are emitted only to `user:<userId>` — a user can never receive another user's events |
-| Token expiry | If the token expires, the client must reconnect with a fresh token. The server does **not** proactively close an already-open socket when a token expires. |
+| Authentication | Cookies verified on every new connection; falls back to refresh token |
+| Authorisation | Events emitted only to `user:<userId>` — a user can never receive another user's events |
+| Token expiry | Access token expiry is handled at connect time via the refresh token fallback. Already-open sockets are not proactively closed on expiry. |
 | CORS | Driven by `CORS_ALLOWED_ORIGINS`; if no origins are configured, all cross-origin connections are denied (fail-closed) |
 | Emit failure | `emitToUser()` is fire-and-forget and swallows errors — a socket failure never affects REST response correctness |
 
@@ -121,7 +129,7 @@ CORS_ALLOWED_ORIGINS=http://localhost:3000,https://app.yourdomain.com
 The demo frontend exposes a ready-to-use React hook at `src/hooks/useGenerationSocket.ts`:
 
 ```ts
-const { status, lastUpdate, clearLastUpdate } = useGenerationSocket(accessToken);
+const { status, lastUpdate, clearLastUpdate } = useGenerationSocket(isLoggedIn);
 
 useEffect(() => {
   if (!lastUpdate) return;
@@ -134,6 +142,8 @@ useEffect(() => {
 
 `status` values: `"disconnected"` | `"connecting"` | `"connected"` | `"error"`
 
+Cookies are sent automatically — no token argument is needed.
+
 ---
 
 ## File structure
@@ -141,12 +151,12 @@ useEffect(() => {
 ```
 src/Config/socket/
   index.ts      ← initSocket(httpServer) + getIO() singleton
-  middleware.ts ← JWT auth — rejects unauthenticated handshakes
+  middleware.ts ← Cookie-based auth — resolves access_token / refresh_token from handshake headers
   handler.ts    ← connection handler — joins user room, ping/pong, disconnect log
   events.ts     ← SocketEvent constants + TGenerationUpdatePayload type
 
 demo-fe/src/
-  lib/socket.ts          ← socket.io-client singleton + getSocket() / disconnectSocket()
+  lib/socket.ts          ← SocketEvent constants
   lib/socket.types.ts    ← TGenerationUpdatePayload type
   hooks/useGenerationSocket.ts ← React hook — connect/disconnect lifecycle + event listener
 ```

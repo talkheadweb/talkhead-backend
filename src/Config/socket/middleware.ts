@@ -1,33 +1,47 @@
 import type { Socket } from "socket.io";
-import { JwtHelper } from "@/Utils/helper/jwtHelper";
+import { parse as parseCookies } from "cookie";
+import { ACCESS_COOKIE_NAME, REFRESH_COOKIE_NAME } from "@/App/Auth/const";
+import { resolveSession } from "@/App/Auth/utils";
 import { LogService } from "@/Config/logger/utils";
 
 const log = LogService.AUTH;
 
 /**
- * Validates the JWT access token from socket.handshake.auth.token.
- * Attaches uid / email / role to socket.data on success.
- * Rejects the connection immediately on any auth failure — no socket is opened.
+ * Socket.io auth middleware — reads cookies from the handshake HTTP headers.
+ *
+ * The handshake is a standard HTTP upgrade request so the browser sends all
+ * cookies automatically. No token needs to be passed explicitly from the client.
+ *
+ * Delegates auth logic to resolveSession() — the same utility used by the HTTP
+ * authenticate middleware — so both transports share one token resolution path.
+ *
+ * Note: no new cookie is issued here (WebSocket has no Set-Cookie). The next
+ * HTTP request will trigger a silent refresh if the access token has expired.
  */
-export const socketAuthMiddleware = (
+export const socketAuthMiddleware = async (
   socket: Socket,
   next  : (err?: Error) => void,
-): void => {
-  const token = socket.handshake.auth?.token as string | undefined;
+): Promise<void> => {
+  const rawCookieHeader = socket.handshake.headers.cookie ?? "";
+  const cookies         = parseCookies(rawCookieHeader);
 
-  if (!token) {
-    log.warn("Socket connection rejected — no token", { id: socket.id });
-    return next(new Error("Authentication required"));
-  }
+  const accessToken  = cookies[ACCESS_COOKIE_NAME];
+  const refreshToken = cookies[REFRESH_COOKIE_NAME];
 
   try {
-    const payload = JwtHelper.verifyAccessToken(token);
-    socket.data.userId = payload.uid;
-    socket.data.email  = payload.email;
-    socket.data.role   = payload.role;
+    const session = await resolveSession(accessToken, refreshToken);
+
+    socket.data.userId = session.uid;
+    socket.data.email  = session.email;
+    socket.data.role   = session.role;
+
+    if (session.refreshed) {
+      log.info("Socket authenticated via refresh token", { id: socket.id, uid: session.uid });
+    }
+
     next();
-  } catch {
-    log.warn("Socket connection rejected — invalid token", { id: socket.id });
-    next(new Error("Invalid or expired token"));
+  } catch (err: any) {
+    log.warn("Socket rejected — auth failed", { id: socket.id, reason: err?.message });
+    next(new Error(err?.message ?? "Authentication required."));
   }
 };
