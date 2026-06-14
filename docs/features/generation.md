@@ -72,7 +72,7 @@ The controller adds presigned URL fields alongside all R2 keys — the raw keys 
     "status": "pending",
     "inputType": "text",
     "voiceId": "af_heart",
-    "avatarImage": "generations/images/uuid.jpg",
+    "avatarImageKey": "generations/images/uuid.jpg",
     "avatarImageUrl": "https://r2.example.com/generations/images/uuid.jpg?presigned=...",
     "inputText": "Say this calmly.",
     "avatarImageFile": "664f1b2c3e4a5b6c7d8e9f04",
