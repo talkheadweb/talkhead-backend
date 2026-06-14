@@ -81,8 +81,8 @@ Store refresh token in Redis (auth:refresh:<userId>, 7 day TTL)
        ▼
 200 OK
   body: { user, accessToken }                    ← accessToken also in body for mobile clients
-  Set-Cookie: access_token=<token>;  HttpOnly; SameSite=lax; Max-Age=900
-  Set-Cookie: refresh_token=<token>; HttpOnly; SameSite=lax; Max-Age=604800
+  Set-Cookie: access_token=<token>;  HttpOnly; SameSite=none; Secure; Max-Age=900
+  Set-Cookie: refresh_token=<token>; HttpOnly; SameSite=none; Secure; Max-Age=604800
 ```
 
 ### Logout

@@ -1,58 +1,114 @@
 # Frontend API Proxy Setup (Next.js)
 
-Explains why browser cookies fail when the frontend runs locally against a deployed
-backend, and how to fix it with a Next.js Route Handler proxy.
+Explains the SameSite cookie model, why a proxy Route Handler is still needed even
+with `SameSite=None`, and how everything fits together.
 
 ---
 
-## Why cookies break in local development
+## SameSite — what it is and why it matters
 
-| Environment | Frontend | Backend | Cookie behaviour |
-|---|---|---|---|
-| Local dev | `http://localhost:3000` | `https://dev-api.talkhead.ai` | ❌ Cross-origin — cookies blocked |
-| Production | `https://demo.talkhead.ai` | `https://dev-api.talkhead.ai` | ✅ Same-site cookies work |
+`SameSite` is a browser cookie attribute that controls when the browser attaches a
+cookie to an outgoing request. It has three values:
 
-The backend sets cookies with `HttpOnly; SameSite=Lax`. Browsers refuse to send
-`SameSite=Lax` cookies on cross-origin `fetch` requests from JavaScript.
+| Value | Browser sends the cookie when… | Typical use |
+|---|---|---|
+| `Strict` | Only same-site requests (navigation from the same domain only) | High-security apps |
+| `Lax` | Same-site requests **+** top-level navigations (clicking a link). Cross-origin `fetch`/XHR/WebSocket — **no** | Default for most apps |
+| `None` | Every request including cross-origin **fetch**, XHR, and WebSocket upgrades — **requires `Secure=true` (HTTPS)** | APIs with cross-origin browser clients |
 
-`SameSite=None; Secure=true` would allow cross-origin cookies but requires HTTPS on
-both sides — localhost is always plain HTTP.
-
-**Postman is unaffected** because it bypasses all browser cookie security rules.
+> **"Same-site" vs "same-origin":** same-site means the registrable domain matches
+> (`demo.talkhead.ai` and `dev-api.talkhead.ai` are same-site because both share
+> `talkhead.ai`). Same-origin is stricter — scheme + host + port must all match.
+> SameSite checks only the registrable domain.
 
 ---
 
-## The fix — Next.js Route Handler proxy
-
-A catch-all Route Handler at `src/app/api/[...path]/route.ts` forwards every
-`/api/*` request to the backend and streams the full response — including `Set-Cookie`
-headers — back to the browser. The browser sees everything as the same origin
-(localhost or the live domain), so cookies are stored and sent correctly.
+## Cookie settings used in this project
 
 ```
-Browser                     Next.js server                   Backend
-  │                               │                              │
-  │  fetch("/api/v1/auth/login")  │                              │
-  │──────────────────────────────>│                              │
-  │                               │  fetch(BACKEND_URL + path)  │
-  │                               │─────────────────────────────>│
-  │                               │<── 200 + Set-Cookie ─────────│
-  │<── 200 + Set-Cookie ──────────│   (all headers forwarded)    │
-  │  (cookie stored for localhost)│                              │
-  │                               │                              │
-  │  fetch("/api/v1/auth/me")     │                              │
-  │  Cookie: access_token=...     │                              │
-  │──────────────────────────────>│                              │
-  │                               │  forwards Cookie header      │
-  │                               │─────────────────────────────>│
+AUTH_COOKIE_SAMESITE=none
+AUTH_COOKIE_SECURE=true
 ```
 
-> **Why not `rewrites()` in `next.config.ts`?**
-> Next.js `rewrites()` only rewrites the URL. It does **not** forward response headers
-> from the upstream backend. So when the `authenticate` middleware silently refreshes
-> an access token and calls `res.cookie()`, that `Set-Cookie` header is silently
-> dropped and the browser never updates the cookie. The Route Handler proxy avoids
-> this entirely by forwarding every header unchanged.
+**Why `None` and not `Lax`?**
+
+The Socket.io client connects **directly from the browser** to `dev-api.talkhead.ai`
+— not through the Next.js proxy. This is a cross-origin WebSocket upgrade request.
+`SameSite=Lax` cookies are stripped by the browser on cross-origin connections.
+`SameSite=None; Secure` tells the browser to attach the cookie regardless of origin.
+
+HTTP API requests go through the Next.js proxy (same origin from the browser's
+perspective), so `Lax` would work for those — but `None` is needed for Socket.io,
+and using one setting for all cookies is simpler.
+
+**Why `Secure=true`?**
+
+`SameSite=None` is only valid when paired with `Secure=true`. Browsers reject and
+discard `SameSite=None` cookies that lack the `Secure` flag. Both frontend and
+backend are HTTPS in all deployed environments so this is always safe.
+
+**Local development exception:**
+
+`localhost` is exempt from `Secure` requirements in most browsers. The local `.env`
+uses `SameSite=Lax` + `Secure=false` because the socket connects to
+`http://localhost:9000` — same origin, so `Lax` is sufficient and `Secure` is
+irrelevant.
+
+```
+# .env (local only — never deploy these values)
+AUTH_COOKIE_SAMESITE=lax
+AUTH_COOKIE_SECURE=false
+```
+
+---
+
+## Why the Next.js proxy is still needed with `SameSite=None`
+
+`SameSite=None` solves the *sending* of cookies from the browser to the backend.
+It does **not** solve the *receiving* and storing of `Set-Cookie` response headers
+in cross-origin contexts — that requires `Access-Control-Allow-Credentials: true` +
+an exact `Access-Control-Allow-Origin` header on **every** response.
+
+The critical case is **silent token refresh**: when the access token expires, the
+`authenticate` middleware issues a new one via `Set-Cookie`. For the browser to
+store that updated cookie, the response must carry correct CORS credentials headers.
+The proxy makes the browser think it's talking to its own origin, eliminating the
+CORS requirement entirely and making `Set-Cookie` storage reliable across all
+environments.
+
+Additional reasons to keep the proxy:
+
+- **Hides the backend URL** — the browser never sees `dev-api.talkhead.ai` directly
+- **Consistent code paths** — `apiRequest()` uses relative `/api/v1/...` paths in
+  both dev and production; no conditional base URLs needed
+- **Server-side rendering** — `getCurrentUser()` calls the backend directly from the
+  Next.js server with manual cookie forwarding; it doesn't go through the proxy at all
+
+```
+                      HTTP requests (REST API)
+────────────────────────────────────────────────────────
+Browser                     Next.js server               Backend
+  │                               │                         │
+  │  fetch("/api/v1/auth/login")  │                         │
+  │──────────────────────────────>│                         │
+  │                               │  fetch(BACKEND_URL/...) │
+  │                               │────────────────────────>│
+  │                               │<── 200 + Set-Cookie ────│
+  │<── 200 + Set-Cookie ──────────│  (all headers forwarded)│
+  │  cookie stored ✓              │                         │
+
+                      Socket.io (real-time)
+────────────────────────────────────────────────────────
+Browser                                              Backend
+  │                                                     │
+  │  WebSocket upgrade → dev-api.talkhead.ai            │
+  │  Cookie: access_token=... (SameSite=None allows it) │
+  │────────────────────────────────────────────────────>│
+  │<── 101 Switching Protocols ─────────────────────────│
+  │  socket open ✓                                      │
+```
+
+The proxy handles HTTP. `SameSite=None` handles Socket.io. Both are needed.
 
 ---
 
@@ -101,146 +157,62 @@ export const OPTIONS = proxy;
 export const HEAD    = proxy;
 ```
 
-### `next.config.ts`
-
-No `rewrites()` needed — the Route Handler takes priority over rewrites for `/api/*`.
-
-```ts
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
-  // No rewrites() — /api/[...path]/route.ts is the proxy
-};
-
-export default nextConfig;
-```
-
-### `.env` / `.env.local`
-
-```
-NEXT_PUBLIC_API_URL=https://dev-api.talkhead.ai
-```
-
-This is the only variable needed. The proxy handler appends incoming paths to it.
+> **Why not `rewrites()` in `next.config.ts`?**
+> Next.js `rewrites()` only rewrites the URL — it does **not** forward response headers.
+> `Set-Cookie` from the backend is silently dropped. The Route Handler proxy forwards
+> every header unchanged, including `Set-Cookie` from silent token refresh.
 
 ---
 
 ## API client pattern
 
-All browser-side fetch calls must use **relative paths** so they go through the proxy:
+All browser-side fetch calls use **relative paths** so they route through the proxy:
 
 ```ts
-// src/lib/api.ts
+// ✅ correct — goes through the proxy
+apiRequest("/auth/me");           // → /api/v1/auth/me → proxy → backend
 
-const BASE = "/api/v1";
-
-export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${BASE}${path.startsWith("/") ? path : `/${path}`}`, {
-    ...options,
-    credentials: "include",   // required — sends cookies with every request
-    headers: {
-      ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
-      ...options.headers,
-    },
-  });
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error((body as { message?: string }).message ?? `HTTP ${res.status}`);
-  }
-
-  return res.json();
-}
+// ❌ wrong — bypasses proxy, CORS headers needed, Set-Cookie may not be stored
+fetch("https://dev-api.talkhead.ai/api/v1/auth/me", { credentials: "include" });
 ```
 
-| ❌ Do not | ✅ Do |
-|---|---|
-| `fetch("https://dev-api.talkhead.ai/api/v1/...")` | `fetch("/api/v1/...")` |
-| Omit `credentials` | Always `credentials: "include"` |
-| Use `next.config.ts` rewrites | Use the Route Handler proxy |
-
-> **Server-side calls are different.** `getCurrentUser()` and other server-component
-> fetches run on the Next.js server, not in a browser. They call the backend directly
-> using the absolute `NEXT_PUBLIC_API_URL` and manually forward cookies from the
-> incoming Next.js request. They do **not** go through the proxy route handler.
-
----
-
-## Google OAuth — dynamic origin
-
-Google OAuth requires a full browser navigation to the backend (not a `fetch`), so
-the proxy is not involved. The Google auth link passes the current `window.location.origin`
-to the backend:
+Socket.io is the one exception — it always connects to the backend directly:
 
 ```ts
-const GOOGLE_AUTH_BASE = `${process.env.NEXT_PUBLIC_API_URL}/api/v1/auth/social/google`;
-
-// In the login form (client component):
-href={`${GOOGLE_AUTH_BASE}?origin=${window.location.origin}`}
-```
-
-The backend validates this origin against `CORS_ALLOWED_ORIGINS` and uses it to
-redirect back to the correct frontend after OAuth completes. This means the same
-deployed backend works for `http://localhost:3000` in development and
-`https://demo.talkhead.ai` in production without any configuration change.
-
-After OAuth, the backend redirects to `<origin>/auth/callback?code=<uuid>`. The
-`/auth/callback` route handler exchanges the code for tokens via a server-side fetch
-and forwards the `Set-Cookie` headers to the browser — same forwarding pattern as
-the API proxy.
-
-The `/auth/callback` route handler detects the correct public domain automatically
-from reverse-proxy headers (`x-forwarded-host`, `x-forwarded-proto`), so redirects
-always go to the real domain rather than `localhost`:
-
-```ts
-function getOrigin(request: NextRequest): string {
-  const proto = request.headers.get("x-forwarded-proto") ?? request.nextUrl.protocol.replace(":", "");
-  const host  = request.headers.get("x-forwarded-host")  ?? request.headers.get("host") ?? request.nextUrl.host;
-  return `${proto}://${host}`;
-}
+const socket = io(process.env.NEXT_PUBLIC_API_URL, { withCredentials: true });
 ```
 
 ---
 
 ## Backend configuration
 
-### CORS — required origins
+### CORS
 
-`CORS_ALLOWED_ORIGINS` on the backend must include every frontend origin:
+`CORS_ALLOWED_ORIGINS` must include every frontend origin. This list also doubles
+as the OAuth redirect whitelist:
 
 ```
 CORS_ALLOWED_ORIGINS=http://localhost:3000,https://demo.talkhead.ai
 ```
 
-This list doubles as the **OAuth redirect whitelist** — only origins in this list
-are accepted as `?origin=` values when starting a Google OAuth flow.
-
-### Cookie settings
-
-The backend defaults work correctly with the proxy in place. No `AUTH_COOKIE_SAMESITE`
-or `AUTH_COOKIE_SECURE` overrides are needed:
+### Cookie settings (deployed)
 
 ```
-# Do NOT set these in production — let the backend use its defaults
-# AUTH_COOKIE_SAMESITE=lax
-# AUTH_COOKIE_SECURE=false
+AUTH_COOKIE_SAMESITE=none
+AUTH_COOKIE_SECURE=true
 ```
 
-### Social callback URL
-
-`FRONTEND_SOCIAL_CALLBACK_URL` is the **fallback** used when a frontend doesn't pass
-`?origin=`. Set it to your primary production frontend:
+### Cookie settings (local development)
 
 ```
-FRONTEND_SOCIAL_CALLBACK_URL=https://demo.talkhead.ai/auth/callback
+AUTH_COOKIE_SAMESITE=lax
+AUTH_COOKIE_SECURE=false
 ```
 
 ---
 
-## Production behaviour
+## Google OAuth
 
-The same proxy route handler runs in production. When both frontend and backend are
-on HTTPS, cookies already work cross-origin with `SameSite=Lax`, so the proxy is
-technically redundant — but keeping it active means identical code paths in dev
-and production and no risk of a `Set-Cookie` header being dropped anywhere.
+Google OAuth requires a full browser navigation (not a `fetch`) so the proxy is not
+involved. The callback handler at `/auth/callback` exchanges the one-time code for
+tokens via a server-side fetch and forwards `Set-Cookie` to the browser directly.

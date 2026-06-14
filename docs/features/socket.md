@@ -15,10 +15,31 @@ Authenticated users can open a persistent WebSocket connection to receive real-t
 ```ts
 import { io } from "socket.io-client";
 
-const socket = io("http://localhost:9000", {
-  withCredentials: true,   // send cookies cross-origin
+const socket = io("https://dev-api.talkhead.ai", {
+  withCredentials: true,   // required — tells the browser to include cookies on this cross-origin connection
 });
 ```
+
+### Cookie requirement for cross-origin sockets
+
+The socket client connects **directly from the browser** to the backend — it does not
+go through the Next.js proxy. This is a cross-origin connection (`demo.talkhead.ai` →
+`dev-api.talkhead.ai`). For the browser to attach cookies on a cross-origin WebSocket
+upgrade, the cookies must be set with `SameSite=None; Secure`.
+
+```
+# Required on the backend for deployed environments
+AUTH_COOKIE_SAMESITE=none
+AUTH_COOKIE_SECURE=true
+```
+
+| Cookie setting | HTTP (proxied) | Socket.io (direct cross-origin) |
+|---|---|---|
+| `SameSite=Lax` | ✅ Works (proxy is same-origin) | ❌ Cookies stripped |
+| `SameSite=None; Secure` | ✅ Works | ✅ Works |
+
+Local development (`localhost:9000`) is same-origin for socket.io, so `SameSite=Lax`
+works there and no change is needed locally.
 
 ### Auth resolution order (server-side)
 
@@ -27,6 +48,8 @@ const socket = io("http://localhost:9000", {
 3. No valid token in any cookie → reject with `"Authentication required."` (client receives `connect_error`)
 
 > Note: the server does **not** issue a new cookie during the socket handshake (that happens on the next HTTP request). A silently-refreshed socket simply continues with the refresh-token identity until a new access token is issued.
+
+> **Debugging:** if the backend logs `"Socket handshake has no cookies — likely SameSite mismatch"`, the fix is to set `AUTH_COOKIE_SAMESITE=none` and `AUTH_COOKIE_SECURE=true` in the deployed environment.
 
 ---
 
