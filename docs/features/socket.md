@@ -24,22 +24,36 @@ const socket = io("https://dev-api.talkhead.ai", {
 
 The socket client connects **directly from the browser** to the backend — it does not
 go through the Next.js proxy. This is a cross-origin connection (`demo.talkhead.ai` →
-`dev-api.talkhead.ai`). For the browser to attach cookies on a cross-origin WebSocket
-upgrade, the cookies must be set with `SameSite=None; Secure`.
+`dev-api.talkhead.ai`). Two cookie attributes are required for the browser to include
+cookies on this direct connection:
 
 ```
-# Required on the backend for deployed environments
+# Required on the backend for deployed subdomain environments
 AUTH_COOKIE_SAMESITE=none
 AUTH_COOKIE_SECURE=true
+AUTH_COOKIE_DOMAIN=.talkhead.ai
 ```
 
-| Cookie setting | HTTP (proxied) | Socket.io (direct cross-origin) |
+**Why all three are needed:**
+
+| Attribute | What it controls | Without it |
 |---|---|---|
-| `SameSite=Lax` | ✅ Works (proxy is same-origin) | ❌ Cookies stripped |
-| `SameSite=None; Secure` | ✅ Works | ✅ Works |
+| `SameSite=None` | Allows cookies to be sent on cross-origin requests | Browser strips cookies from socket handshake |
+| `Secure=true` | Required by browsers when `SameSite=None` | Browser silently discards the cookie |
+| `Domain=.talkhead.ai` | Shares cookie across all `*.talkhead.ai` subdomains | Cookie stored under `demo.talkhead.ai` (via proxy) is never sent to `dev-api.talkhead.ai` (direct socket) |
+
+The domain issue is the subtle one: HTTP requests go through the Next.js proxy, so the
+browser stores cookies under `demo.talkhead.ai`. Without `Domain=.talkhead.ai`, those
+cookies are invisible to `dev-api.talkhead.ai`.
+
+| Setup | HTTP (proxied) | Socket.io (direct) |
+|---|---|---|
+| `SameSite=Lax`, no domain | ✅ Works | ❌ Stripped (SameSite) |
+| `SameSite=None; Secure`, no domain | ✅ Works | ❌ Domain mismatch |
+| `SameSite=None; Secure; Domain=.talkhead.ai` | ✅ Works | ✅ Works |
 
 Local development (`localhost:9000`) is same-origin for socket.io, so `SameSite=Lax`
-works there and no change is needed locally.
+works and no domain override is needed locally.
 
 ### Auth resolution order (server-side)
 
@@ -49,7 +63,7 @@ works there and no change is needed locally.
 
 > Note: the server does **not** issue a new cookie during the socket handshake (that happens on the next HTTP request). A silently-refreshed socket simply continues with the refresh-token identity until a new access token is issued.
 
-> **Debugging:** if the backend logs `"Socket handshake has no cookies — likely SameSite mismatch"`, the fix is to set `AUTH_COOKIE_SAMESITE=none` and `AUTH_COOKIE_SECURE=true` in the deployed environment.
+> **Debugging:** if the backend logs `"Socket handshake has no cookies — likely SameSite mismatch"`, set `AUTH_COOKIE_SAMESITE=none`, `AUTH_COOKIE_SECURE=true`, and `AUTH_COOKIE_DOMAIN=.talkhead.ai` in the deployed environment, then log out and log back in to issue new cookies with the correct attributes.
 
 ---
 

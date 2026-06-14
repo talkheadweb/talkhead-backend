@@ -26,38 +26,45 @@ cookie to an outgoing request. It has three values:
 ## Cookie settings used in this project
 
 ```
+# Deployed environment
 AUTH_COOKIE_SAMESITE=none
 AUTH_COOKIE_SECURE=true
+AUTH_COOKIE_DOMAIN=.talkhead.ai
 ```
 
-**Why `None` and not `Lax`?**
+**Why `SameSite=None`?**
 
 The Socket.io client connects **directly from the browser** to `dev-api.talkhead.ai`
 — not through the Next.js proxy. This is a cross-origin WebSocket upgrade request.
 `SameSite=Lax` cookies are stripped by the browser on cross-origin connections.
-`SameSite=None; Secure` tells the browser to attach the cookie regardless of origin.
-
-HTTP API requests go through the Next.js proxy (same origin from the browser's
-perspective), so `Lax` would work for those — but `None` is needed for Socket.io,
-and using one setting for all cookies is simpler.
+`SameSite=None` tells the browser to attach the cookie regardless of origin.
 
 **Why `Secure=true`?**
 
-`SameSite=None` is only valid when paired with `Secure=true`. Browsers reject and
-discard `SameSite=None` cookies that lack the `Secure` flag. Both frontend and
+`SameSite=None` is only valid when paired with `Secure=true`. Browsers silently
+reject `SameSite=None` cookies that lack the `Secure` flag. Both frontend and
 backend are HTTPS in all deployed environments so this is always safe.
 
-**Local development exception:**
+**Why `Domain=.talkhead.ai`?**
 
-`localhost` is exempt from `Secure` requirements in most browsers. The local `.env`
-uses `SameSite=Lax` + `Secure=false` because the socket connects to
-`http://localhost:9000` — same origin, so `Lax` is sufficient and `Secure` is
-irrelevant.
+This is the most subtle requirement. HTTP requests go through the Next.js proxy at
+`demo.talkhead.ai` — so the browser stores cookies **under `demo.talkhead.ai`**. The
+socket connects directly to `dev-api.talkhead.ai`. Without a shared domain attribute,
+the browser won't send a `demo.talkhead.ai` cookie to `dev-api.talkhead.ai`.
+
+Setting `Domain=.talkhead.ai` (leading dot = all subdomains) makes cookies available
+to every `*.talkhead.ai` host — both the proxy origin and the direct socket origin.
+
+**Local development:**
+
+`localhost` is same-origin for both HTTP and socket. `SameSite=Lax` is sufficient,
+no `Secure` or `Domain` needed.
 
 ```
 # .env (local only — never deploy these values)
 AUTH_COOKIE_SAMESITE=lax
 AUTH_COOKIE_SECURE=false
+# AUTH_COOKIE_DOMAIN — leave unset
 ```
 
 ---
@@ -102,13 +109,13 @@ Browser                     Next.js server               Backend
 Browser                                              Backend
   │                                                     │
   │  WebSocket upgrade → dev-api.talkhead.ai            │
-  │  Cookie: access_token=... (SameSite=None allows it) │
-  │────────────────────────────────────────────────────>│
-  │<── 101 Switching Protocols ─────────────────────────│
-  │  socket open ✓                                      │
+  │  Cookie: access_token=... (SameSite=None + Domain=.talkhead.ai) │
+  │──────────────────────────────────────────────────────────────>│
+  │<── 101 Switching Protocols ────────────────────────────────────│
+  │  socket open ✓                                                 │
 ```
 
-The proxy handles HTTP. `SameSite=None` handles Socket.io. Both are needed.
+The proxy handles HTTP. `SameSite=None` + `Domain=.talkhead.ai` handles Socket.io. Both are needed.
 
 ---
 
@@ -200,6 +207,7 @@ CORS_ALLOWED_ORIGINS=http://localhost:3000,https://demo.talkhead.ai
 ```
 AUTH_COOKIE_SAMESITE=none
 AUTH_COOKIE_SECURE=true
+AUTH_COOKIE_DOMAIN=.talkhead.ai
 ```
 
 ### Cookie settings (local development)
@@ -207,6 +215,7 @@ AUTH_COOKIE_SECURE=true
 ```
 AUTH_COOKIE_SAMESITE=lax
 AUTH_COOKIE_SECURE=false
+# AUTH_COOKIE_DOMAIN — leave unset
 ```
 
 ---

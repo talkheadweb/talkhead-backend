@@ -40,6 +40,7 @@ The server crashes at startup if any required variable is missing (Zod validatio
 | `BCRYPT_SALT_ROUNDS` | `12` | bcrypt rounds (never go below 10 in production) |
 | `AUTH_COOKIE_SAMESITE` | `none` (prod) / `lax` (dev) | Cookie SameSite policy |
 | `AUTH_COOKIE_SECURE` | `true` if SameSite=none | Cookie Secure flag |
+| `AUTH_COOKIE_DOMAIN` | `.talkhead.ai` (prod) / unset (dev) | Cookie domain scope — leading dot required for subdomain sharing |
 | `CLOUDFLARE_REGION` | `auto` | R2 region |
 | `CLOUDFLARE_CUSTOM_DOMAIN` | — | CDN domain for public R2 URLs |
 | `FRONTEND_SOCIAL_CALLBACK_URL` | — | OAuth success/failure redirect (required if using social login) |
@@ -87,7 +88,7 @@ The app runs as non-root (`node` user). Redis data persists in the `redis_data` 
 
 **Production Docker notes:**
 - Set `NODE_ENV=production` in the environment
-- Set `AUTH_COOKIE_SAMESITE=none` and `AUTH_COOKIE_SECURE=true` for cross-origin deployments
+- Set `AUTH_COOKIE_SAMESITE=none`, `AUTH_COOKIE_SECURE=true`, and `AUTH_COOKIE_DOMAIN=.talkhead.ai` for cross-origin subdomain deployments
 - Mount a volume for logs if you want log persistence outside the container
 - Consider a reverse proxy (nginx / Caddy) in front for TLS termination
 
@@ -133,15 +134,21 @@ pm2 startup
 
 ## Cookie configuration
 
-The `refresh_token` cookie must be configured correctly for your deployment:
+Three env vars control cookie behaviour. All three must be consistent:
 
-| Setup | `AUTH_COOKIE_SAMESITE` | `AUTH_COOKIE_SECURE` |
-|---|---|---|
-| Frontend + API on same domain (`app.example.com` + `api.example.com`) | `lax` | `true` |
-| Frontend + API on different domains (cross-site) | `none` | `true` |
-| Local HTTP development | `lax` | `false` |
+| Setup | `AUTH_COOKIE_SAMESITE` | `AUTH_COOKIE_SECURE` | `AUTH_COOKIE_DOMAIN` |
+|---|---|---|---|
+| Local HTTP development | `lax` | `false` | *(unset)* |
+| Frontend + API on same subdomain root (e.g. `demo.talkhead.ai` + `dev-api.talkhead.ai`) | `none` | `true` | `.talkhead.ai` |
+| Frontend + API on completely different domains | `none` | `true` | *(unset — domain scope won't help across different TLDs)* |
 
-`SameSite=None` requires `Secure=true` — browsers reject the cookie otherwise.
+**Why `AUTH_COOKIE_DOMAIN` is required for subdomain deployments:**
+
+HTTP requests from the browser go through the Next.js proxy at `demo.talkhead.ai`. The browser stores cookies under `demo.talkhead.ai`. Socket.io connects **directly** from the browser to `dev-api.talkhead.ai` — a different host. Without a shared domain, the browser won't send the cookies on the socket handshake.
+
+Setting `Domain=.talkhead.ai` (leading dot = all subdomains) makes the cookies available to every `*.talkhead.ai` host, so both the proxy and the direct socket connection receive them.
+
+`SameSite=None` requires `Secure=true` — browsers silently reject the cookie otherwise.
 
 ---
 
@@ -166,7 +173,7 @@ with `getPresignedUrl()`.
 - [ ] JWT secrets are long random strings (32+ chars), not guessable phrases
 - [ ] `BCRYPT_SALT_ROUNDS=12` minimum
 - [ ] HTTPS enabled (required for `SameSite=None` cookies and OAuth)
-- [ ] `AUTH_COOKIE_SAMESITE=none`, `AUTH_COOKIE_SECURE=true`
+- [ ] `AUTH_COOKIE_SAMESITE=none`, `AUTH_COOKIE_SECURE=true`, `AUTH_COOKIE_DOMAIN=.yourdomain.com`
 - [ ] `CORS_ALLOWED_ORIGINS` set to exact frontend origin(s), no wildcard `*`
 - [ ] Google OAuth redirect URI registered in Google Cloud Console
 - [ ] Swagger UI is disabled in production (automatically — gated by `node_env`)

@@ -26,12 +26,16 @@ export const ACCESS_COOKIE_NAME = "access_token" as const;
 /** @deprecated use REFRESH_COOKIE_NAME */
 export const COOKIE_NAME = REFRESH_COOKIE_NAME;
 
-type CookieConfig = { sameSite: "lax" | "none" | "strict"; secure: boolean };
+type CookieConfig = { sameSite: "lax" | "none" | "strict"; secure: boolean; domain?: string };
 
 const baseOptions = (cookie: CookieConfig): CookieOptions => ({
   httpOnly: true,
-  secure: cookie.sameSite === "none" ? true : cookie.secure,
+  secure  : cookie.sameSite === "none" ? true : cookie.secure,
   sameSite: cookie.sameSite,
+  // domain is only set when AUTH_COOKIE_DOMAIN is configured.
+  // With a leading-dot domain (e.g. ".talkhead.ai") the browser shares the cookie
+  // across all subdomains, allowing socket.io (direct cross-origin) to receive it.
+  ...(cookie.domain ? { domain: cookie.domain } : {}),
 });
 
 export const getRefreshTokenCookieOptions = (

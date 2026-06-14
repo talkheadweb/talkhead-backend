@@ -81,8 +81,8 @@ Store refresh token in Redis (auth:refresh:<userId>, 7 day TTL)
        ▼
 200 OK
   body: { user, accessToken }                    ← accessToken also in body for mobile clients
-  Set-Cookie: access_token=<token>;  HttpOnly; SameSite=none; Secure; Max-Age=900
-  Set-Cookie: refresh_token=<token>; HttpOnly; SameSite=none; Secure; Max-Age=604800
+  Set-Cookie: access_token=<token>;  HttpOnly; SameSite=none; Secure; Domain=.talkhead.ai; Max-Age=900
+  Set-Cookie: refresh_token=<token>; HttpOnly; SameSite=none; Secure; Domain=.talkhead.ai; Max-Age=604800
 ```
 
 ### Logout
@@ -292,8 +292,8 @@ Content-Type: application/json
 **Response 200** — sets two httpOnly cookies, identical to a regular login:
 
 ```
-Set-Cookie: access_token=<jwt>;  HttpOnly; SameSite=lax; Max-Age=900
-Set-Cookie: refresh_token=<jwt>; HttpOnly; SameSite=lax; Max-Age=604800
+Set-Cookie: access_token=<jwt>;  HttpOnly; SameSite=none; Secure; Domain=.talkhead.ai; Max-Age=900
+Set-Cookie: refresh_token=<jwt>; HttpOnly; SameSite=none; Secure; Domain=.talkhead.ai; Max-Age=604800
 
 { "success": true, "message": "Social login successful." }
 ```
