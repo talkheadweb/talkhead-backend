@@ -74,9 +74,11 @@ const create = catchAsync(async (req: Request, res: Response) => {
     : undefined;
 
   // Create DB record + enqueue; if enqueue fails the record is rolled back
+  const mode = (req.query as { mode?: string }).mode;
   const result = await GenerationService.create(req.user!.uid, req.body, {
     refImageKey,
     audioKey,
+    mode,
   });
 
   // Upload files to R2 after successful enqueue, track each as a FileRecord, store refs

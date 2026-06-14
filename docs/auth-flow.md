@@ -360,7 +360,28 @@ is created. On every `GET /auth/me` (and `login` / `updateProfile`), `resolvePro
 
 ---
 
-## 3. Protected routes
+## 3. Shared token resolution — `resolveSession()`
+
+Both HTTP (`authenticate` middleware) and Socket.io (`socketAuthMiddleware`) delegate to the same function:
+
+```ts
+// src/App/Auth/utils.ts
+resolveSession(accessToken?, refreshToken?) → TResolvedSession
+```
+
+Resolution order:
+1. **Valid access token** → return immediately (no Redis check needed)
+2. **Expired access token** → fall back to refresh token
+3. **Refresh token** → verify JWT + Redis revocation check (`auth:refresh:<userId>`)
+4. **No valid token** → throw `"Authentication required."`
+
+The `authenticate` HTTP middleware also writes a new `Set-Cookie: access_token` when the session was refreshed (`session.refreshed === true`), so the browser gets an updated token transparently.
+
+The socket middleware does not issue a new cookie — the socket simply continues with refresh-token identity until the next HTTP request refreshes the access token.
+
+---
+
+## 4. Protected routes
 
 ```ts
 // Require authentication only
@@ -371,10 +392,9 @@ router.delete("/users/:id", authenticate, AccessLimit(["admin"]), controller)
 ```
 
 `authenticate` reads the access token from the `access_token` cookie first, falling
-back to the `Authorization: Bearer <token>` header for mobile clients. It verifies
-the JWT and sets `req.user = { uid, email, role }`. If the access token is expired
-but a valid `refresh_token` cookie is present, it silently issues a new access token
-cookie and proceeds — the request never fails.
+back to the `Authorization: Bearer <token>` header for mobile clients. It delegates to
+`resolveSession()`, sets `req.user = { uid, email, role }`, and issues a refreshed
+access token cookie when the old one was expired.
 
 `AccessLimit(roles)` checks `req.user.role` against the allowed list and
 returns **403** (not 401) if the role doesn't match.

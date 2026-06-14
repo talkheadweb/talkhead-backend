@@ -31,5 +31,11 @@ export const GenerationInputType = {
 export type TGenerationInputType = typeof GenerationInputType[keyof typeof GenerationInputType];
 export const GenerationInputTypeValues = Object.values(GenerationInputType) as [TGenerationInputType, ...TGenerationInputType[]];
 
+// ── Test mode ──────────────────────────────────────────────────────────────
+// When mode=test is passed at generation creation, the queue processor skips
+// the external API call and immediately marks the job completed with this key.
+export const GENERATION_TEST_OUTPUT_KEY =
+  "generations/6a2376982deea03e9de2aa8e/c0222feb-fb21-4b3c-a108-94a856ea4f88.mp4" as const;
+
 // ── Redis / cache prefixes (if needed in future) ───────────────────────────
 export const GENERATION_CACHE_PREFIX = "generation" as const;

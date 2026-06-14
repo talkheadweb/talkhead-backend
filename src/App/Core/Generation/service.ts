@@ -14,8 +14,9 @@ import type { IGeneration, TCallbackBody, TCreateGenerationBody, TListGeneration
 import { GenerationFilterKeys as FilterKeys, GenerationSearchKeys as SearchKeys } from "./types";
 
 type TFileKeys = {
-  refImageKey?: string;   // pre-generated R2 key for avatar image file upload
-  audioKey?   : string;   // pre-generated R2 key for input audio file upload
+  refImageKey?: string;
+  audioKey?   : string;
+  mode?       : string;
 };
 
 // ── Create ─────────────────────────────────────────────────────────────────
@@ -48,6 +49,7 @@ const create = async (userId: string, body: TCreateGenerationBody, keys: TFileKe
         avatarImageKey,
         inputText   : body.inputText,
         inputAudioKey,
+        ...(keys.mode ? { mode: keys.mode } : {}),
       },
     );
     // Store the QueueJob reference on the generation doc for easy cross-lookup

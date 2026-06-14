@@ -84,6 +84,22 @@ The controller adds presigned URL fields alongside all R2 keys — the raw keys 
 
 > `avatarImageFile`, `inputAudioFile`, `outputFile` are populated asynchronously — may be `undefined` on the initial 201 response and set by the time you poll with a GET.
 
+### Test mode
+
+Pass `?mode=test` as a query parameter to skip the external API call and immediately resolve the job with a dummy output file:
+
+```
+POST /api/v1/generations?mode=test
+```
+
+- The generation record is created and queued normally
+- The worker detects `mode=test`, calls `handleCallback` with a hardcoded dummy output key
+- The job status moves from `pending → processing → completed` within seconds
+- A `generation:update` socket event is emitted with `status: "completed"` and the dummy `outputUrl`
+- Dummy file key: `generations/6a2376982deea03e9de2aa8e/c0222feb-fb21-4b3c-a108-94a856ea4f88.mp4`
+
+Useful for frontend integration testing without a live external API.
+
 ### Errors
 
 | Code | Reason |

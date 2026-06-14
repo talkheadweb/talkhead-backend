@@ -20,6 +20,7 @@ import config from "@/Config";
 import { ENodeEnv } from "@/Config/utils/config.types";
 import { LogService } from "@/Config/logger/utils";
 import { GenerationService } from "@/App/Core/Generation/service";
+import { GENERATION_TEST_OUTPUT_KEY } from "@/App/Core/Generation/const";
 import type { TQueueJobData } from "../types";
 
 const log = LogService.APPLICATION;
@@ -62,6 +63,17 @@ export const handleGenerationJob = async (job: Job<TQueueJobData>): Promise<void
   const { recordId, payload } = job.data;
 
   await GenerationService.markProcessing(recordId);
+
+  // Test mode: skip external API, immediately complete with dummy output
+  if (payload.mode === "test") {
+    log.info("Generation job — test mode, completing with dummy output", { recordId });
+    await GenerationService.handleCallback(recordId, {
+      success      : true,
+      outputFileKey: GENERATION_TEST_OUTPUT_KEY,
+    });
+    return;
+  }
+
   log.info("Generation job — triggering external API", { recordId, jobId: job.id });
 
   try {

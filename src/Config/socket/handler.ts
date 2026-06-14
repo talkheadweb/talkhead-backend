@@ -4,15 +4,23 @@ import { SocketEvent } from "./events";
 
 const log = LogService.APPLICATION;
 
-const onConnection = (socket: Socket): void => {
+const onConnection = async (io: Server, socket: Socket): Promise<void> => {
   const userId = socket.data.userId as string;
+  const room   = `user:${userId}`;
 
-  // Each user gets their own room — all their tabs share it.
-  // Emit to `user:<userId>` to reach every active tab for that user.
-  socket.join(`user:${userId}`);
+  // Enforce single connection per user — disconnect any existing socket(s)
+  // for this user before joining the room with the new one.
+  const existing = await io.in(room).fetchSockets();
+  for (const old of existing) {
+    if (old.id !== socket.id) {
+      log.info("Socket — evicting old connection for user", { old: old.id, new: socket.id, userId });
+      old.disconnect(true);
+    }
+  }
+
+  socket.join(room);
   log.info("Socket connected", { socketId: socket.id, userId });
 
-  // Health-check handshake — client sends "ping", server replies "pong"
   socket.on(SocketEvent.PING, () => {
     socket.emit(SocketEvent.PONG);
   });
@@ -23,5 +31,5 @@ const onConnection = (socket: Socket): void => {
 };
 
 export const registerSocketHandlers = (io: Server): void => {
-  io.on("connection", onConnection);
+  io.on("connection", (socket) => void onConnection(io, socket));
 };

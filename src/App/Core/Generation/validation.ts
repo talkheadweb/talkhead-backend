@@ -5,6 +5,9 @@ import { GenerationInputTypeValues, GenerationStatusValues } from "./const";
 // Files (avatarImage, inputAudio) are handled by multer, not Zod.
 // Body fields are validated here; file-presence rules are checked in the controller.
 export const createGenerationSchema = z.object({
+  query: z.object({
+    mode: z.literal("test").optional(),
+  }),
   body: z.object({
     inputType        : z.enum(GenerationInputTypeValues, { required_error: "inputType is required" }),
     voiceId          : z.string().min(1, "voiceId is required"),

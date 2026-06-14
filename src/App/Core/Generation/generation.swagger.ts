@@ -62,8 +62,12 @@ export const generationPaths = {
         "Accepts multipart/form-data. avatarImage file or avatarImageUrl body field is required. " +
         "The stored DB field is avatarImageKey (R2 key or external URL). " +
         "When inputType is audio, inputAudio file (MP3/WAV/M4A ≤ 12 MB) is also required. " +
-        "Files are uploaded to R2 after the job is enqueued; the record is rolled back if enqueue fails.",
-      secured  : true,
+        "Files are uploaded to R2 after the job is enqueued; the record is rolled back if enqueue fails. " +
+        "Pass ?mode=test to skip the external API and resolve the job instantly with a dummy output file (for integration testing).",
+      secured    : true,
+      parameters : [
+        queryParam("mode", enumOf(["test"]), "Test mode — skips external API, resolves job with dummy output immediately"),
+      ],
       body     : {
         required   : true,
         content    : {

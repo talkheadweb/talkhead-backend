@@ -69,7 +69,18 @@ works and no domain override is needed locally.
 
 ## Rooms
 
-On connection the server automatically joins the socket to the room `user:<userId>`. All tabs for the same user share this room. You never need to join a room manually from the client.
+On connection the server automatically joins the socket to the room `user:<userId>`. You never need to join a room manually from the client.
+
+---
+
+## Single connection per user
+
+The server enforces **one active socket connection per user**. When a new socket connects, the handler checks the `user:<userId>` room for any existing socket(s) and calls `disconnect(true)` on them before the new socket joins.
+
+**Effect on the client:**
+- Page refresh → old socket is evicted server-side; new socket takes over seamlessly.
+- Multiple tabs → the most recently connected tab becomes the active socket; all previous tabs receive a `disconnect` event with reason `"server namespace disconnect"`.
+- The frontend `SocketProvider` handles reconnection automatically, so tabs that were evicted will attempt to reconnect — at which point they become the active connection until the next connect.
 
 ---
 
@@ -161,12 +172,16 @@ Ensure `credentials: true` is set in the Socket.io CORS config (already done in 
 
 ---
 
-## Demo frontend hook
+## Demo frontend
 
-The demo frontend exposes a ready-to-use React hook at `src/hooks/useGenerationSocket.ts`:
+The socket is initialised **once at the app root** via `SocketProvider` (`demo-fe/src/context/socket-context.tsx`), which wraps the entire layout. The connection persists across page navigations — it is not scoped to a single page.
+
+**In components**, read socket state via `useSocketContext()`:
 
 ```ts
-const { status, lastUpdate, clearLastUpdate } = useGenerationSocket(isLoggedIn);
+import { useSocketContext } from "@/context/socket-context";
+
+const { status, lastUpdate, clearLastUpdate } = useSocketContext();
 
 useEffect(() => {
   if (!lastUpdate) return;
@@ -174,12 +189,12 @@ useEffect(() => {
     setVideoUrl(lastUpdate.outputUrl);
     clearLastUpdate();
   }
-}, [lastUpdate]);
+}, [lastUpdate, clearLastUpdate]);
 ```
 
 `status` values: `"disconnected"` | `"connecting"` | `"connected"` | `"error"`
 
-Cookies are sent automatically — no token argument is needed.
+The underlying hook (`useGenerationSocket`) lives at `src/hooks/useGenerationSocket.ts` — it is used exclusively by `SocketProvider`. Do not call it directly from components.
 
 ---
 
@@ -189,11 +204,12 @@ Cookies are sent automatically — no token argument is needed.
 src/Config/socket/
   index.ts      ← initSocket(httpServer) + getIO() singleton
   middleware.ts ← Cookie-based auth — resolves access_token / refresh_token from handshake headers
-  handler.ts    ← connection handler — joins user room, ping/pong, disconnect log
+  handler.ts    ← connection handler — single-connection enforcement, user room join, ping/pong
   events.ts     ← SocketEvent constants + TGenerationUpdatePayload type
 
 demo-fe/src/
-  lib/socket.ts          ← SocketEvent constants
-  lib/socket.types.ts    ← TGenerationUpdatePayload type
-  hooks/useGenerationSocket.ts ← React hook — connect/disconnect lifecycle + event listener
+  context/socket-context.tsx  ← SocketProvider (app root) + useSocketContext() hook
+  lib/socket.ts               ← SocketEvent constants
+  lib/socket.types.ts             ← TGenerationUpdatePayload type
+  hooks/useGenerationSocket.ts    ← internal hook used by SocketProvider only
 ```
