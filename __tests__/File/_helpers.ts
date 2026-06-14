@@ -24,18 +24,21 @@ export const otherUserToken = jwt.sign(
   { expiresIn: "15m" },
 );
 
-export const makeFileDoc = (overrides = {}) => ({
-  _id         : VALID_ID,
-  type        : "avatar_image",
-  folder      : "avatars",
-  fileKey     : "avatars/test-uuid.jpg",
-  fileUrl     : "https://cdn.example.com/avatars/test-uuid.jpg",
-  originalName: "test.jpg",
-  mimeType    : "image/jpeg",
-  fileSize    : 10240,
-  uploadedBy  : VALID_ID,
-  ownerId     : OWNER_ID,
-  createdAt   : new Date().toISOString(),
-  updatedAt   : new Date().toISOString(),
-  ...overrides,
-});
+export const makeFileDoc = (overrides = {}) => {
+  const base = {
+    _id         : VALID_ID,
+    type        : "avatar_image",
+    folder      : "avatars",
+    fileKey     : "avatars/test-uuid.jpg",
+    fileUrl     : "https://cdn.example.com/avatars/test-uuid.jpg",
+    originalName: "test.jpg",
+    mimeType    : "image/jpeg",
+    fileSize    : 10240,
+    uploadedBy  : VALID_ID,
+    ownerId     : OWNER_ID,
+    createdAt   : new Date().toISOString(),
+    updatedAt   : new Date().toISOString(),
+    ...overrides,
+  };
+  return { ...base, toObject: () => base };
+};

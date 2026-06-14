@@ -35,7 +35,7 @@ const create = async (
   const existing = await AvatarModel.findOne({ slug }).lean();
   if (existing) throw new CustomError("An avatar with this slug already exists.", 409);
 
-  return AvatarModel.create({
+  const doc = await AvatarModel.create({
     title    : body.title,
     slug,
     file     : fileRecord._id,
@@ -43,6 +43,7 @@ const create = async (
     isActive : true,
     createdBy: new Types.ObjectId(userId),
   });
+  return doc.toObject();
 };
 
 // ── List ───────────────────────────────────────────────────────────────────

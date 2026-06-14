@@ -20,17 +20,20 @@ const mockGenId  = "664f1b2c3e4a5b6c7d8e9f00";
 const MockModel = GenerationModel as jest.Mocked<typeof GenerationModel>;
 const MockJwt   = JwtHelper       as jest.Mocked<typeof JwtHelper>;
 
-const makeDoc = (overrides = {}) => ({
-  _id           : mockGenId,
-  userId        : mockUserId,
-  status        : GenerationStatus.PENDING,
-  inputType     : GenerationInputType.TEXT,
-  voiceId       : "af_heart",
-  avatarImageKey: "generations/images/mock-key.jpg",
-  inputText     : "Say this calmly.",
-  save          : jest.fn().mockResolvedValue(undefined),
-  ...overrides,
-});
+const makeDoc = (overrides = {}) => {
+  const base = {
+    _id           : mockGenId,
+    userId        : mockUserId,
+    status        : GenerationStatus.PENDING,
+    inputType     : GenerationInputType.TEXT,
+    voiceId       : "af_heart",
+    avatarImageKey: "generations/images/mock-key.jpg",
+    inputText     : "Say this calmly.",
+    save          : jest.fn().mockResolvedValue(undefined),
+    ...overrides,
+  };
+  return { ...base, toObject: () => base };
+};
 
 const auth = () => ({ Authorization: "Bearer valid-token" });
 

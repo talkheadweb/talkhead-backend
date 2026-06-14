@@ -17,22 +17,25 @@ export const userToken = jwt.sign(
   { expiresIn: "15m" },
 );
 
-export const makeAvatarDoc = (overrides = {}) => ({
-  _id      : VALID_ID,
-  title    : "Test Avatar",
-  slug     : "test-avatar",
-  fileKey  : "avatars/test-uuid.jpg",
-  file     : {
-    _id         : new Types.ObjectId().toHexString(),
-    fileUrl     : "https://cdn.example.com/avatars/test-uuid.jpg",
-    mimeType    : "image/jpeg",
-    fileSize    : 1024,
-    originalName: "test.jpg",
-    folder      : "avatars",
-  },
-  isActive : true,
-  createdBy: VALID_ID,
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
-  ...overrides,
-});
+export const makeAvatarDoc = (overrides = {}) => {
+  const base = {
+    _id      : VALID_ID,
+    title    : "Test Avatar",
+    slug     : "test-avatar",
+    fileKey  : "avatars/test-uuid.jpg",
+    file     : {
+      _id         : new Types.ObjectId().toHexString(),
+      fileUrl     : "https://cdn.example.com/avatars/test-uuid.jpg",
+      mimeType    : "image/jpeg",
+      fileSize    : 1024,
+      originalName: "test.jpg",
+      folder      : "avatars",
+    },
+    isActive : true,
+    createdBy: VALID_ID,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  };
+  return { ...base, toObject: () => base };
+};

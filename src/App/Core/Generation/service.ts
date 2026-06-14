@@ -59,7 +59,7 @@ const create = async (userId: string, body: TCreateGenerationBody, keys: TFileKe
   }
 
   LogService.APPLICATION.info("Generation job queued", { recordId: doc._id });
-  return doc;
+  return doc.toObject();
 };
 
 // ── List (paginated, filtered) ─────────────────────────────────────────────

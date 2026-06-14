@@ -30,7 +30,7 @@ const upload = async (
 
   await uploadFileToR2(file.path, fileKey, file.mimetype);
 
-  return FileRecordModel.create({
+  const doc = await FileRecordModel.create({
     type        : payload.type,
     folder,
     fileKey,
@@ -40,6 +40,7 @@ const upload = async (
     uploadedBy  : new Types.ObjectId(uid),
     ownerId     : payload.ownerId ? new Types.ObjectId(payload.ownerId) : undefined,
   });
+  return doc.toObject();
 };
 
 // ── Track: create FileRecord for a file already uploaded to R2 ─────────────
@@ -52,7 +53,7 @@ const track = async (
   const cfg    = FileTypeConfig[payload.type];
   const folder = cfg.getFolder(uploadedBy);
 
-  return FileRecordModel.create({
+  const doc = await FileRecordModel.create({
     type        : payload.type,
     folder,
     fileKey     : payload.fileKey,
@@ -62,6 +63,7 @@ const track = async (
     uploadedBy  : new Types.ObjectId(uploadedBy),
     ownerId     : payload.ownerId ? new Types.ObjectId(payload.ownerId) : undefined,
   });
+  return doc.toObject();
 };
 
 // ── externalUpload: upload for external API — no user context ──────────────
@@ -82,7 +84,7 @@ const externalUpload = async (
   // output is always linkable by its generation.
   const resolvedOwnerId = ownerId ?? generationId;
 
-  return FileRecordModel.create({
+  const doc = await FileRecordModel.create({
     type        : FileType.GENERATION,
     folder,
     fileKey,
@@ -91,6 +93,7 @@ const externalUpload = async (
     fileSize    : file.size,
     ownerId     : new Types.ObjectId(resolvedOwnerId),
   });
+  return doc.toObject();
 };
 
 // ── findOneByUrl: look up a FileRecord by fileKey (fileUrl is no longer stored)
