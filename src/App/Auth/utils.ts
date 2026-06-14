@@ -19,9 +19,15 @@ export type TResolvedSession = {
  *
  * Resolution order:
  *   1. Verify access token → return session (refreshed: false)
- *   2. Access token expired → verify refresh token + Redis revocation check
- *      → return session (refreshed: true)
- *   3. No valid token → throw (caller decides the transport-specific error)
+ *   2. Access token invalid or expired → fall through to refresh token
+ *   3. Verify refresh token + Redis revocation check → return session (refreshed: true)
+ *   4. No valid token → throw (caller decides the transport-specific error)
+ *
+ * The access token is treated as a fast-path optimisation only. Any failure
+ * (expired, wrong secret, malformed) falls through to the refresh token rather
+ * than throwing immediately. This is intentional: the socket transport cannot
+ * issue new cookies, so it must be able to authenticate via refresh token alone
+ * even when the access token has become invalid between connections.
  *
  * Throws a plain Error with a human-readable message. Callers wrap it into
  * their own error type (CustomError for HTTP, socket next(err) for WS).
@@ -30,16 +36,14 @@ export const resolveSession = async (
   accessToken ?: string,
   refreshToken ?: string,
 ): Promise<TResolvedSession> => {
-  // ── 1. Try access token ────────────────────────────────────────────────────
+  // ── 1. Try access token (fast path) ───────────────────────────────────────
   if (accessToken) {
     try {
       const p = JwtHelper.verifyAccessToken(accessToken);
       return { uid: String(p.uid), email: p.email as string, role: p.role as string, refreshed: false };
-    } catch (err: any) {
-      if (err?.name !== "TokenExpiredError") {
-        throw new Error("Invalid access token.");
-      }
-      // Expired — fall through to refresh token
+    } catch {
+      // Any failure (expired, invalid, wrong secret) — fall through to refresh token.
+      // Do NOT throw here: the refresh token is the authoritative credential.
     }
   }
 
