@@ -29,10 +29,10 @@ export const GenerationExtraFilterKeys: string[]              = ["userId"];
 
 // ── Request DTOs ───────────────────────────────────────────────────────────
 export type TCreateGenerationBody = {
-  inputType        : TGenerationInputType;
-  voiceId          : string;
-  inputText?       : string;
-  avatarImageUrl?: string;           // present when avatarImage is passed as URL (no file)
+  inputType      : TGenerationInputType;
+  voiceId        : string;
+  inputText?     : string;
+  avatarImageKey?: string;  // R2 file key from an existing Avatar record
 };
 
 export type TCallbackBody = {

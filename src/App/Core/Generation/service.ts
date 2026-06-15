@@ -25,7 +25,7 @@ type TFileKeys = {
 // If enqueue fails the DB record is rolled back here — no file cleanup needed
 // because files are uploaded only after this returns.
 const create = async (userId: string, body: TCreateGenerationBody, keys: TFileKeys) => {
-  const avatarImageKey   = keys.refImageKey ?? body.avatarImageUrl!;
+  const avatarImageKey   = keys.refImageKey ?? body.avatarImageKey!;
   const inputAudioKey = keys.audioKey;
 
   const doc = await GenerationModel.create({

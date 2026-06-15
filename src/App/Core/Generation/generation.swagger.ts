@@ -59,8 +59,7 @@ export const generationPaths = {
     ...post({
       summary    : "Create a generation job",
       description:
-        "Accepts multipart/form-data. avatarImage file or avatarImageUrl body field is required. " +
-        "The stored DB field is avatarImageKey (R2 key or external URL). " +
+        "Accepts multipart/form-data. Either upload an avatarImage file or provide an avatarImageKey (R2 file key from the Avatar module). " +
         "When inputType is audio, inputAudio file (MP3/WAV/M4A ≤ 12 MB) is also required. " +
         "Files are uploaded to R2 after the job is enqueued; the record is rolled back if enqueue fails. " +
         "Pass ?mode=test to skip the external API and resolve the job instantly with a dummy output file (for integration testing).",
@@ -76,12 +75,12 @@ export const generationPaths = {
               type      : "object",
               required  : ["inputType", "voiceId"],
               properties: {
-                inputType       : enumOf([...GenerationInputTypeValues]),
-                voiceId         : str({ example: "af_heart" }),
-                inputText       : str({ max: 5000, example: "Read this calmly." }),
-                avatarImageUrl: str({ example: "https://cdn.example.com/ref.jpg" }),
-                avatarImage  : { type: "string", format: "binary", description: "JPEG/PNG ≤ 5 MB" },
-                inputAudio      : { type: "string", format: "binary", description: "MP3/WAV/M4A ≤ 12 MB (required when inputType=audio)" },
+                inputType      : enumOf([...GenerationInputTypeValues]),
+                voiceId        : str({ example: "af_heart" }),
+                inputText      : str({ max: 5000, example: "Read this calmly." }),
+                avatarImageKey : { ...str({ example: "avatar-images/uuid.webp" }), description: "R2 file key from an existing Avatar record (alternative to avatarImage file upload)" },
+                avatarImage    : { type: "string", format: "binary", description: "JPEG/PNG ≤ 5 MB (alternative to avatarImageKey)" },
+                inputAudio     : { type: "string", format: "binary", description: "MP3/WAV/M4A ≤ 12 MB (required when inputType=audio)" },
               },
             },
           },

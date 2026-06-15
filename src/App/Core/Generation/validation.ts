@@ -9,10 +9,10 @@ export const createGenerationSchema = z.object({
     mode: z.literal("test").optional(),
   }),
   body: z.object({
-    inputType        : z.enum(GenerationInputTypeValues, { required_error: "inputType is required" }),
-    voiceId          : z.string().min(1, "voiceId is required"),
-    inputText        : z.string().min(1).max(5000).optional(),
-    avatarImageUrl: z.string().url("avatarImageUrl must be a valid URL").optional(),
+    inputType      : z.enum(GenerationInputTypeValues, { required_error: "inputType is required" }),
+    voiceId        : z.string().min(1, "voiceId is required"),
+    inputText      : z.string().min(1).max(5000).optional(),
+    avatarImageKey : z.string().min(1).optional(),
   }).superRefine((data, ctx) => {
     if (data.inputType === "text" && !data.inputText) {
       ctx.addIssue({

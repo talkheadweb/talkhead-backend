@@ -23,7 +23,7 @@ const withPublicUrls = async <T extends Partial<IGeneration>>(
 ): Promise<T & { avatarImageUrl?: string; inputAudioUrl?: string; outputUrl?: string }> => {
   const result: Record<string, unknown> = { ...doc };
 
-  if (doc.avatarImageKey && !doc.avatarImageKey.startsWith("http")) {
+  if (doc.avatarImageKey) {
     result["avatarImageUrl"] = await FileService.getUrlByKey(doc.avatarImageKey);
   }
 
@@ -47,10 +47,10 @@ const create = catchAsync(async (req: Request, res: Response) => {
   const avatarImageFile = files?.["avatarImage"]?.[0];
   const inputAudioFile  = files?.["inputAudio"]?.[0];
 
-  // Validate avatarImage — must be either a file upload or a URL in the body
-  if (!avatarImageFile && !req.body.avatarImageUrl) {
+  // Validate avatarImage — must be a file upload or an existing Avatar file key
+  if (!avatarImageFile && !req.body.avatarImageKey) {
     throw new CustomError(
-      "avatarImage is required: upload a file or provide avatarImageUrl.",
+      "avatarImage is required: upload a file or provide avatarImageKey.",
       400,
     );
   }

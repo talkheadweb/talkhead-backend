@@ -35,11 +35,11 @@ All R2 file keys stored in the database are converted to presigned URLs before b
 | `inputType` | `"text" \| "audio"` | ✅ | Determines which input field is used |
 | `voiceId` | `string` | ✅ | Voice ID for the external API (e.g. `af_heart`) |
 | `inputText` | `string` (max 5000) | Required if `inputType=text` | Text to synthesise |
-| `avatarImageUrl` | `string` (URL) | Required if no `avatarImage` file | Reference image as URL |
-| `avatarImage` | file | Required if no `avatarImageUrl` | JPEG/PNG, max **5 MB** |
+| `avatarImageKey` | `string` (R2 key) | Required if no `avatarImage` file | File key from an existing Avatar record (e.g. `avatar-images/uuid.webp`) |
+| `avatarImage` | file | Required if no `avatarImageKey` | JPEG/PNG, max **5 MB** |
 | `inputAudio` | file | Required if `inputType=audio` | MP3/WAV/M4A, max **12 MB** |
 
-**At least one of** `avatarImageUrl` **or** `avatarImage` **must be provided.** When `inputType=audio`, `inputAudio` file is required.
+**Either `avatarImageKey` or `avatarImage` must be provided** — if both are sent, the uploaded file takes precedence. When `inputType=audio`, `inputAudio` file is also required.
 
 ### Upload + file tracking flow
 
@@ -56,8 +56,7 @@ The controller adds presigned URL fields alongside all R2 keys — the raw keys 
 
 | DB field | Always in response | Added alongside (when field present) |
 |----------|-------------------|--------------------------------------|
-| `avatarImageKey` (external URL) | `avatarImageKey` — unchanged | — |
-| `avatarImageKey` (R2 key) | `avatarImageKey` — raw key | `avatarImageUrl` — presigned URL (1 hr) |
+| `avatarImageKey` | `avatarImageKey` — raw R2 key | `avatarImageUrl` — presigned URL (1 hr) |
 | `inputAudioKey` | `inputAudioKey` — raw key | `inputAudioUrl` — presigned URL (1 hr) |
 | `outputFileKey` | `outputFileKey` — raw key | `outputUrl` — presigned URL (1 hr) |
 
@@ -104,7 +103,7 @@ Useful for frontend integration testing without a live external API.
 
 | Code | Reason |
 |------|--------|
-| 400 | Missing `avatarImage`/`avatarImageUrl`, missing `voiceId`, missing `inputText` when `inputType=text`, missing `inputAudio` when `inputType=audio`, invalid enum |
+| 400 | Missing `avatarImage`/`avatarImageKey`, missing `voiceId`, missing `inputText` when `inputType=text`, missing `inputAudio` when `inputType=audio`, invalid enum |
 | 401 | No / invalid token |
 
 ---
@@ -201,7 +200,7 @@ When `success=true` and `outputFileKey` is provided, `markCompleted` stores the 
 
 1. **Status flow:** `pending` → `processing` → `completed` | `failed`; cancellable from `pending` only
 2. **Ownership:** users see and cancel only their own jobs; admins have full access
-3. **File rules:** `avatarImageKey` always required (file upload or `avatarImageUrl` body field); `inputAudio` file required only when `inputType=audio`
+3. **File rules:** `avatarImageKey` always required (upload via `avatarImage` file, or pass `avatarImageKey` string from the Avatar module); `inputAudio` file required only when `inputType=audio`
 4. **voiceId always required:** every generation needs a voice ID — no default
 5. **File refs are async:** `avatarImageFile`, `inputAudioFile`, `outputFile` are set fire-and-forget after the main response — poll the GET endpoint if you need them
 6. **Presigned URLs in responses:** all R2 file keys are replaced with presigned URLs (1 hr TTL) before sending to the frontend — clients always receive working URLs
@@ -248,8 +247,8 @@ BullMQ Worker:
   handleGenerationJob(job)
   ├─ GenerationService.markProcessing(recordId)   → status = PROCESSING
   ├─ triggerExternalApi(recordId, payload)
-  │     dev  → skip HTTP, log only
-  │     prod → POST QUEUE_EXTERNAL_API_URL → await 2xx (fire-and-forget trigger)
+  │     mode=test → skip (handled above, never reaches here)
+  │     all envs  → POST QUEUE_EXTERNAL_API_URL → await 2xx (fire-and-forget trigger)
   │
   ├─ trigger accepted (2xx) → log "awaiting callback", worker exits
   │
