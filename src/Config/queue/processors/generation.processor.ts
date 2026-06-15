@@ -17,7 +17,6 @@
 
 import { Job } from "bullmq";
 import config from "@/Config";
-import { ENodeEnv } from "@/Config/utils/config.types";
 import { LogService } from "@/Config/logger/utils";
 import { GenerationService } from "@/App/Core/Generation/service";
 import { GENERATION_TEST_OUTPUT_KEY } from "@/App/Core/Generation/const";
@@ -34,12 +33,6 @@ const triggerExternalApi = async (
   recordId: string,
   payload : Record<string, unknown>,
 ): Promise<void> => {
-  if (config.node_env !== ENodeEnv.PROD) {
-    // Dev: skip real HTTP — trigger the callback manually via the callback endpoint
-    log.info("Generation trigger — dev mode, skipping real HTTP call", { recordId });
-    return;
-  }
-
   const callbackUrl = `${config.backend_base_url}/api/v1/generations/${recordId}/callback`;
 
   const response = await fetch(config.queue.external_api_url, {
