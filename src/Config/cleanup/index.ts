@@ -40,17 +40,29 @@ export const cleanupGenerations = async (): Promise<number> => {
 
   if (!docs.length) return 0;
 
-  // Collect all R2 keys and FileRecord refs in one pass
-  const r2Keys    : string[]       = [];
+  // Collect R2 keys and FileRecord refs in one pass.
+  //
+  // avatarImageKey / inputAudioKey are only deleted from R2 when the generation
+  // owns them — i.e. a FileRecord ref is set (the user uploaded the file for this
+  // generation). If the ref is absent the key belongs to an existing Avatar record
+  // and must not be touched here.
+  //
+  // outputFileKey is always generation-specific (uploaded by the external API
+  // for this job) so it is always safe to delete regardless of the ref.
+  const r2Keys    : string[]         = [];
   const fileRefIds: Types.ObjectId[] = [];
 
   for (const doc of docs) {
-    if (doc.avatarImageKey) r2Keys.push(doc.avatarImageKey);
-    if (doc.inputAudioKey)  r2Keys.push(doc.inputAudioKey);
-    if (doc.outputFileKey)  r2Keys.push(doc.outputFileKey);
-    if (doc.avatarImageFile) fileRefIds.push(doc.avatarImageFile as Types.ObjectId);
-    if (doc.inputAudioFile)  fileRefIds.push(doc.inputAudioFile  as Types.ObjectId);
-    if (doc.outputFile)      fileRefIds.push(doc.outputFile       as Types.ObjectId);
+    if (doc.avatarImageFile) {
+      r2Keys.push(doc.avatarImageKey);
+      fileRefIds.push(doc.avatarImageFile as Types.ObjectId);
+    }
+    if (doc.inputAudioFile) {
+      if (doc.inputAudioKey) r2Keys.push(doc.inputAudioKey);
+      fileRefIds.push(doc.inputAudioFile as Types.ObjectId);
+    }
+    if (doc.outputFileKey) r2Keys.push(doc.outputFileKey);
+    if (doc.outputFile)    fileRefIds.push(doc.outputFile as Types.ObjectId);
   }
 
   // Three bulk operations — R2 parallel, then two deleteMany calls
