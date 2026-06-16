@@ -10,6 +10,7 @@ const AvatarSchema = new Schema<TAvatarDocument>(
     file     : { type: Schema.Types.ObjectId, ref: "FileRecord", required: true },
     fileKey  : { type: String, required: true },
     isActive : { type: Boolean, default: true, index: true },
+    isSystem : { type: Boolean, default: false, index: true },
     createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
   },
   { timestamps: true, versionKey: false },

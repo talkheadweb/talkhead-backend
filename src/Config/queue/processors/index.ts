@@ -30,15 +30,14 @@
  *        (throw causes BullMQ to retry up to 3× with exponential backoff)
  */
 
-import { Job } from "bullmq";
-import config from "@/Config";
 import { LogService } from "@/Config/logger/utils";
 import { QueueJobType } from "@/Config/queue/const";
+import { Job } from "bullmq";
 import type { TQueueJobData } from "../types";
 
 // ── Feature processors ─────────────────────────────────────────────────────
+import { handleCleanupJob } from "./cleanup.processor";
 import { handleGenerationJob } from "./generation.processor";
-// import { handleMyFeatureJob } from "./myFeature.processor";   ← add here
 
 const log = LogService.APPLICATION;
 
@@ -52,17 +51,20 @@ export const processQueueJob = async (job: Job<TQueueJobData>): Promise<void> =>
     case QueueJobType.GENERATION:
       return handleGenerationJob(job);
 
+    case QueueJobType.CLEANUP:
+      return handleCleanupJob(job);
+
     default:
       // Unknown type — forward to external API as raw passthrough (no record update)
       log.warn("Unknown job type — forwarding to external API without record update", { type, recordId });
-      const response = await fetch(config.queue.external_api_url, {
-        method : "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": config.queue.api_key },
-        body   : JSON.stringify({ recordId, payload }),
-      });
-      if (!response.ok) {
-        const err = await response.text().catch(() => "unknown");
-        throw new Error(`External API responded with ${response.status}: ${err}`);
-      }
+    // const response = await fetch(config.queue.external_api_url, {
+    //   method : "POST",
+    //   headers: { "Content-Type": "application/json", "x-api-key": config.queue.api_key },
+    //   body   : JSON.stringify({ recordId, payload }),
+    // });
+    // if (!response.ok) {
+    //   const err = await response.text().catch(() => "unknown");
+    //   throw new Error(`External API responded with ${response.status}: ${err}`);
+    // }
   }
 };

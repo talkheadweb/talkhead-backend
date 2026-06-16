@@ -14,9 +14,7 @@
 
 export const QueueJobType = {
   GENERATION: "generation",
-  // Add new job types here:
-  // TRANSCRIPTION: "transcription",
-  // SUMMARY      : "summary",
+  CLEANUP   : "cleanup",
 } as const;
 
 export type TQueueJobType = typeof QueueJobType[keyof typeof QueueJobType];

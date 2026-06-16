@@ -41,6 +41,7 @@ const create = async (
     file     : fileRecord._id,
     fileKey  : fileRecord.fileKey,
     isActive : true,
+    isSystem : body.isSystem ?? false,
     createdBy: new Types.ObjectId(userId),
   });
   return doc.toObject();
