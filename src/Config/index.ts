@@ -175,7 +175,7 @@ const envConfig = z
 
     rate_limit: {
       global: {
-        windowMs: process.env.RATE_LIMIT_GLOBAL_WINDOW_MS ? parseInt(process.env.RATE_LIMIT_GLOBAL_WINDOW_MS) : 15 * 60 * 1000,
+        windowMs: process.env.RATE_LIMIT_GLOBAL_WINDOW_MS ? parseInt(process.env.RATE_LIMIT_GLOBAL_WINDOW_MS) : 60 * 1000,
         max     : process.env.RATE_LIMIT_GLOBAL_MAX       ? parseInt(process.env.RATE_LIMIT_GLOBAL_MAX)       : 300,
       },
       auth: {
