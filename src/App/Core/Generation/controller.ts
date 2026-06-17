@@ -146,9 +146,22 @@ const getOne = catchAsync(async (req: Request, res: Response) => {
   sendResponse.success(res, { statusCode: 200, message: "Generation fetched.", data, req });
 });
 
-// ── Update (admin only) ────────────────────────────────────────────────────
+// ── Update — admin: all fields; user: label/tags on own generation ─────────
 const update = catchAsync(async (req: Request, res: Response) => {
-  const result = await GenerationService.update(req.params["id"] as string, req.body);
+  const isAdmin = req.user!.role === EUserRole.ADMIN;
+  const id      = req.params["id"] as string;
+  let result;
+
+  if (isAdmin) {
+    result = await GenerationService.update(id, req.body);
+  } else {
+    const { label, tags } = req.body as { label?: string; tags?: string[] };
+    if (label === undefined && tags === undefined) {
+      throw new CustomError("Users can only update label or tags.", 403);
+    }
+    result = await GenerationService.label(id, req.user!.uid, { label, tags });
+  }
+
   const data = await withPublicUrls(result);
   sendResponse.success(res, { statusCode: 200, message: "Generation updated.", data, req });
 });
@@ -160,9 +173,10 @@ const cancel = catchAsync(async (req: Request, res: Response) => {
   sendResponse.success(res, { statusCode: 200, message: "Generation cancelled.", data: result, req });
 });
 
-// ── Delete (admin only) ────────────────────────────────────────────────────
+// ── Delete (owner or admin) ────────────────────────────────────────────────
 const remove = catchAsync(async (req: Request, res: Response) => {
-  const result = await GenerationService.remove(req.params["id"] as string);
+  const isAdmin = req.user!.role === EUserRole.ADMIN;
+  const result  = await GenerationService.remove(req.params["id"] as string, req.user!.uid, isAdmin);
   sendResponse.success(res, { statusCode: 200, message: "Generation deleted.", data: result, req });
 });
 

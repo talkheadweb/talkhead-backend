@@ -24,13 +24,19 @@ export const createGenerationSchema = z.object({
   }),
 });
 
-// ── Update (admin patch) ───────────────────────────────────────────────────
+// ── Update — admin fields + user label/tags (access enforced in controller) ─
 export const updateGenerationSchema = z.object({
   body: z.object({
-    status      : z.enum(GenerationStatusValues).optional(),
+    // Admin-only fields
+    status       : z.enum(GenerationStatusValues).optional(),
     outputFileKey: z.string().min(1).optional(),
-    errorMessage: z.string().optional(),
-    completedAt : z.coerce.date().optional(),
+    errorMessage : z.string().optional(),
+    completedAt  : z.coerce.date().optional(),
+    // User-editable fields
+    label        : z.string().max(100).optional(),
+    tags         : z.array(z.string().max(50)).max(20).optional(),
+  }).refine(d => Object.values(d).some(v => v !== undefined), {
+    message: "Provide at least one field to update",
   }),
 });
 

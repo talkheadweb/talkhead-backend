@@ -51,6 +51,13 @@ const GenerationSchema = new Schema<TGenerationDocument>(
     completedAt: {
       type: Date,
     },
+    label: {
+      type: String,
+    },
+    tags: {
+      type   : [String],
+      default: [],
+    },
     avatarImageFile: {
       type: Schema.Types.ObjectId,
       ref : "FileRecord",

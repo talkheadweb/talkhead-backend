@@ -39,6 +39,8 @@ const generationObject = {
     outputUrl     : str({ example: "https://r2.example.com/generations/output/uuid.mp4?presigned=..." }),
     errorMessage  : str({ example: "Processing failed due to timeout." }),
     completedAt   : { type: "string", format: "date-time" },
+    label         : str({ example: "Product demo take 2" }),
+    tags          : { type: "array", items: { type: "string" }, example: ["demo", "v2"] },
     createdAt     : { type: "string", format: "date-time" },
     updatedAt     : { type: "string", format: "date-time" },
   },
@@ -118,16 +120,22 @@ export const generationPaths = {
     }),
 
     ...patch({
-      summary    : "Update generation result (admin only)",
-      description: "Admin patch for status, outputFileKey, errorMessage, or completedAt.",
+      summary    : "Update a generation record",
+      description:
+        "**Admin:** can update status, outputFileKey, errorMessage, completedAt, label, and tags on any record. " +
+        "**User:** can update only label and tags on their own record (403 if they send admin-only fields without being admin).",
       secured    : true,
       body       : jsonBody({
         required: [],
         props   : {
+          // Admin fields
           status       : enumOf([...GenerationStatusValues]),
           outputFileKey: str({ example: "generations/output/uuid.mp4" }),
-          errorMessage: str({ example: "Timeout error." }),
-          completedAt : { type: "string", format: "date-time" },
+          errorMessage : str({ example: "Timeout error." }),
+          completedAt  : { type: "string", format: "date-time" },
+          // User fields
+          label        : str({ max: 100, example: "Product demo take 2" }),
+          tags         : { type: "array", items: { type: "string", maxLength: 50 }, maxItems: 20, example: ["demo", "v2"] },
         },
       }),
       responses: {
@@ -137,8 +145,11 @@ export const generationPaths = {
     }),
 
     ...del({
-      summary    : "Delete a generation record (admin only)",
-      description: "Hard-deletes the generation record from the database.",
+      summary    : "Delete a generation record",
+      description:
+        "Hard-deletes the generation record and cleans up all associated R2 files and FileRecords. " +
+        "Owners can delete their own records; admins can delete any. " +
+        "Avatar/audio files are only removed from R2 if they were uploaded for this generation (not shared avatar keys).",
       secured    : true,
       responses  : {
         ...ok("Generation deleted.", generationObject),

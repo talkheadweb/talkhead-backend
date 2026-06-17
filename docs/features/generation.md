@@ -15,9 +15,9 @@ All R2 file keys stored in the database are converted to presigned URLs before b
 | `POST` | `/api/v1/generations` | Create a generation job | Bearer token (any role) |
 | `GET` | `/api/v1/generations` | List jobs (owner sees own; admin sees all) | Bearer token |
 | `GET` | `/api/v1/generations/:id` | Get one job | Bearer token (owner or admin) |
-| `PATCH` | `/api/v1/generations/:id` | Update status / result fields | Bearer token (admin only) |
+| `PATCH` | `/api/v1/generations/:id` | Admin: update status/result; User: update label/tags on own | Bearer token |
 | `PATCH` | `/api/v1/generations/:id/cancel` | Cancel a pending job | Bearer token (owner or admin) |
-| `DELETE` | `/api/v1/generations/:id` | Hard delete a record | Bearer token (admin only) |
+| `DELETE` | `/api/v1/generations/:id` | Delete own record (user) or any record (admin) with file cleanup | Bearer token |
 | `POST` | `/api/v1/generations/:id/callback` | External API callback — mark complete or failed | `x-api-key` header (no JWT) |
 
 ---
@@ -136,16 +136,24 @@ Returns 403 if the requesting user is not the owner and not an admin. Response s
 
 ---
 
-## Update (Admin)
+## Update
 
 **PATCH** `/api/v1/generations/:id`
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `status` | `TGenerationStatus` | New status |
-| `outputFileKey` | `string` | R2 object key of the output file |
-| `errorMessage` | `string` | Error detail (set when failed) |
-| `completedAt` | `Date` | Completion timestamp |
+Role determines which fields can be written:
+
+| Field | Type | Who can set | Description |
+|-------|------|-------------|-------------|
+| `status` | `TGenerationStatus` | Admin | New status |
+| `outputFileKey` | `string` | Admin | R2 object key of the output file |
+| `errorMessage` | `string` | Admin | Error detail (set when failed) |
+| `completedAt` | `Date` | Admin | Completion timestamp |
+| `label` | `string` (max 100) | Admin + User (own) | Human-readable display name |
+| `tags` | `string[]` (max 20, each ≤ 50 chars) | Admin + User (own) | Tags for filtering / organisation |
+
+- **Admin** can set any field on any generation.
+- **User** can only set `label` and/or `tags` on their own generation. Sending admin-only fields (e.g. `status`) without being an admin returns 403.
+- At least one field must be provided — empty body returns 400.
 
 Response includes `outputUrl` (presigned URL generated from `outputFileKey`).
 
@@ -161,11 +169,17 @@ Response includes `outputUrl` (presigned URL generated from `outputFileKey`).
 
 ---
 
-## Delete (Admin)
+## Delete
 
 **DELETE** `/api/v1/generations/:id`
 
-Hard-deletes the MongoDB record. Does not attempt R2 file cleanup (files are tracked separately in `FileRecord` and can be cleaned up via the File module).
+- **Owner** can delete their own generation. **Admin** can delete any.
+- Hard-deletes the MongoDB record and cleans up all associated R2 files and `FileRecord` documents.
+- **File cleanup rules** (same as the daily cleanup job):
+  - `avatarImageKey` is deleted from R2 **only** if `avatarImageFile` ref is set on the generation — meaning the generation owns that file (user uploaded it for this job). If the ref is absent the key belongs to a shared Avatar record and is left untouched.
+  - `inputAudioKey` is deleted from R2 only if `inputAudioFile` ref is set.
+  - `outputFileKey` is always deleted from R2 (output is always generation-specific).
+  - All `FileRecord` documents linked via `avatarImageFile`, `inputAudioFile`, `outputFile` refs are bulk-deleted.
 
 ---
 
@@ -199,14 +213,15 @@ When `success=true` and `outputFileKey` is provided, `markCompleted` stores the 
 ## Business Rules
 
 1. **Status flow:** `pending` → `processing` → `completed` | `failed`; cancellable from `pending` only
-2. **Ownership:** users see and cancel only their own jobs; admins have full access
-3. **File rules:** `avatarImageKey` always required (upload via `avatarImage` file, or pass `avatarImageKey` string from the Avatar module); `inputAudio` file required only when `inputType=audio`
-4. **voiceId always required:** every generation needs a voice ID — no default
-5. **File refs are async:** `avatarImageFile`, `inputAudioFile`, `outputFile` are set fire-and-forget after the main response — poll the GET endpoint if you need them
-6. **Presigned URLs in responses:** all R2 file keys are replaced with presigned URLs (1 hr TTL) before sending to the frontend — clients always receive working URLs
-7. **Queue persistence:** every enqueued job is also stored in the `QueueJob` MongoDB collection via `QueueUtil.enqueue` — durable even if Redis is flushed
-8. **Retry policy:** BullMQ retries a failed external API trigger 3× with exponential backoff (2 s, 4 s, 8 s)
-9. **Constants:** all status/type values come from `const.ts` — never use raw strings
+2. **Ownership:** users see, cancel, delete, and label their own jobs; admins have full access to all jobs
+3. **label/tags:** user-editable via `PATCH /:id`; `label` max 100 chars, `tags` max 20 items (each ≤ 50 chars)
+4. **File rules:** `avatarImageKey` always required (upload via `avatarImage` file, or pass `avatarImageKey` string from the Avatar module); `inputAudio` file required only when `inputType=audio`
+5. **voiceId always required:** every generation needs a voice ID — no default
+6. **File refs are async:** `avatarImageFile`, `inputAudioFile`, `outputFile` are set fire-and-forget after the main response — poll the GET endpoint if you need them
+7. **Presigned URLs in responses:** all R2 file keys are replaced with presigned URLs (1 hr TTL) before sending to the frontend — clients always receive working URLs
+8. **Queue persistence:** every enqueued job is also stored in the `QueueJob` MongoDB collection via `QueueUtil.enqueue` — durable even if Redis is flushed
+9. **Retry policy:** BullMQ retries a failed external API trigger 3× with exponential backoff (2 s, 4 s, 8 s)
+10. **Constants:** all status/type values come from `const.ts` — never use raw strings
 
 ---
 
@@ -282,13 +297,14 @@ GenerationService.handleCallback()
 ```
 src/App/Core/Generation/
   const.ts              ← GenerationStatus, GenerationInputType (TEXT | AUDIO)
-  types.ts              ← IGeneration (avatarImageFile?, inputAudioFile?, outputFile? ObjectId refs),
-                           TCreateGenerationBody, TCallbackBody,
+  types.ts              ← IGeneration (label?, tags?, avatarImageFile?, inputAudioFile?, outputFile? ObjectId refs),
+                           TCreateGenerationBody, TLabelGenerationBody, TCallbackBody,
                            GenerationFilterKeys, GenerationExtraFilterKeys
   model.ts              ← Mongoose schema
                            R2 key fields: avatarImageKey, inputAudioKey, outputFileKey
+                           User fields: label (String), tags ([String])
                            FileRecord refs: avatarImageFile, inputAudioFile, outputFile
-  validation.ts         ← createGenerationSchema, updateGenerationSchema,
+  validation.ts         ← createGenerationSchema, updateGenerationSchema (admin+user fields),
                            callbackGenerationSchema
   service.ts            ← CRUD + queue integration + worker callbacks + handleCallback + setFileRefs
   controller.ts         ← HTTP handlers — withPublicUrls() converts all R2 keys to presigned URLs

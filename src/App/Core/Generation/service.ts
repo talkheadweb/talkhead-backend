@@ -4,10 +4,12 @@ import { QueueJobType } from "@/Config/queue/const";
 import { calculatePagination, manageSorting, MongoQueryHelper } from "@/Utils/helper/queryOptimize";
 import CustomError from "@/Utils/errors/customError.class";
 import { LogService } from "@/Config/logger/utils";
+import { deleteFromR2 } from "@/Utils/file/upload";
 import { FileService } from "@/App/File/service";
 import { getIO } from "@/Config/socket";
 import { SocketEvent } from "@/Config/socket/events";
 import type { TGenerationUpdatePayload } from "@/Config/socket/events";
+import FileRecordModel from "@/App/File/model";
 import GenerationModel from "./model";
 import { GenerationStatus } from "./const";
 import type { IGeneration, TCallbackBody, TCreateGenerationBody, TListGenerationsPayload } from "./types";
@@ -154,10 +156,55 @@ const cancel = async (id: string, requestingUserId: string, isAdmin: boolean) =>
   return doc;
 };
 
-// ── Delete ─────────────────────────────────────────────────────────────────
-const remove = async (id: string) => {
-  const doc = await GenerationModel.findByIdAndDelete(id).lean();
+// ── Label / tag (owner only) ───────────────────────────────────────────────
+const label = async (
+  id                : string,
+  requestingUserId  : string,
+  data              : { label?: string; tags?: string[] },
+) => {
+  const doc = await GenerationModel.findById(id).lean();
   if (!doc) throw new CustomError("Generation record not found.", 404);
+  if (String(doc.userId) !== requestingUserId) throw new CustomError("Access denied.", 403);
+
+  const updated = await GenerationModel.findByIdAndUpdate(
+    id,
+    { $set: data },
+    { new: true, lean: true },
+  );
+  return updated!;
+};
+
+// ── Delete (owner or admin — cleans up R2 files and FileRecords) ───────────
+const remove = async (id: string, requestingUserId: string, isAdmin: boolean) => {
+  const doc = await GenerationModel.findById(id).lean();
+  if (!doc) throw new CustomError("Generation record not found.", 404);
+
+  if (!isAdmin && String(doc.userId) !== requestingUserId) {
+    throw new CustomError("Access denied.", 403);
+  }
+
+  // Collect R2 keys and FileRecord refs — same ownership rules as cleanup job:
+  // avatar/audio R2 only deleted when generation owns the file (ref is set).
+  const r2Keys    : string[]                  = [];
+  const fileRefIds: Types.ObjectId[]          = [];
+
+  if (doc.avatarImageFile) {
+    r2Keys.push(doc.avatarImageKey);
+    fileRefIds.push(doc.avatarImageFile as Types.ObjectId);
+  }
+  if (doc.inputAudioFile) {
+    if (doc.inputAudioKey) r2Keys.push(doc.inputAudioKey);
+    fileRefIds.push(doc.inputAudioFile as Types.ObjectId);
+  }
+  if (doc.outputFileKey) r2Keys.push(doc.outputFileKey);
+  if (doc.outputFile)    fileRefIds.push(doc.outputFile as Types.ObjectId);
+
+  await Promise.all(r2Keys.map(k => deleteFromR2(k).catch(() => {})));
+  if (fileRefIds.length) {
+    await FileRecordModel.deleteMany({ _id: { $in: fileRefIds } });
+  }
+  await GenerationModel.findByIdAndDelete(id);
+
   return doc;
 };
 
@@ -260,6 +307,7 @@ export const GenerationService = {
   list,
   getOne,
   update,
+  label,
   cancel,
   remove,
   handleCallback,
