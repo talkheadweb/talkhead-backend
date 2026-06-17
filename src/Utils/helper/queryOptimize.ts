@@ -69,18 +69,36 @@ export const queryOptimization = <M>(
  *   Model.find(filter);
  */
 export const MongoQueryHelper = (
-    fieldType  : "String" | "Number" | "NumberRange" | "Boolean" | "ObjectId" | "Date",
+    fieldType  : "String" | "Number" | "NumberRange" | "Boolean" | "ObjectId" | "Date" | "DateRange",
     fieldName  : string,
     searchValue: string | { min?: string; max?: string },
 ): Record<string, unknown> => {
 
-    // NumberRange takes an object — handle it before the string-only cases below
-    if (fieldType === "NumberRange") {
+    // NumberRange / DateRange take an object — handle before the string-only cases below
+    if (fieldType === "NumberRange" || fieldType === "DateRange") {
         if (typeof searchValue !== "object")
-            throw new CustomError(`NumberRange expects { min?, max? } for field "${fieldName}".`, 400);
+            throw new CustomError(`${fieldType} expects { min?, max? } for field "${fieldName}".`, 400);
         const { min, max } = searchValue;
         if (min === undefined && max === undefined)
             throw new CustomError(`At least one of min or max is required for field "${fieldName}".`, 400);
+
+        if (fieldType === "DateRange") {
+            const range: Record<string, Date> = {};
+            if (min !== undefined) {
+                const d = new Date(min);
+                if (isNaN(d.getTime())) throw new CustomError(`Invalid dateFrom value for field "${fieldName}".`, 400);
+                d.setHours(0, 0, 0, 0);
+                range.$gte = d;
+            }
+            if (max !== undefined) {
+                const d = new Date(max);
+                if (isNaN(d.getTime())) throw new CustomError(`Invalid dateTo value for field "${fieldName}".`, 400);
+                d.setHours(23, 59, 59, 999);
+                range.$lte = d;
+            }
+            return { [fieldName]: range };
+        }
+
         const range: Record<string, number> = {};
         if (min !== undefined) {
             const n = Number(min);

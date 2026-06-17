@@ -183,6 +183,12 @@ const list = async (query: TListFilesPayload, uid: string, isAdmin: boolean) => 
     }
   }
 
+  const dateFrom = filterFields["dateFrom"];
+  const dateTo   = filterFields["dateTo"];
+  if (dateFrom || dateTo) {
+    conditions.push(MongoQueryHelper("DateRange", "createdAt", { min: dateFrom, max: dateTo }));
+  }
+
   const mongoQuery = conditions.length ? { $and: conditions } : {};
 
   const [items, total] = await Promise.all([

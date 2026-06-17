@@ -8,7 +8,7 @@ export const QueueJobSearchKeys: (keyof IQueueJob)[]      = ["recordId", "bullJo
 // Fields used for discrete filtering — type auto-derived from Mongoose schema
 export const QueueJobFilterKeys: (keyof IQueueJob)[]      = ["status", "type"];
 // Extra keys not on the schema
-export const QueueJobExtraFilterKeys: string[]             = [];
+export const QueueJobExtraFilterKeys: string[]             = ["dateFrom", "dateTo"];
 
 // ── Query payload type passed from controller → service ────────────────────
 export type TListQueueJobsPayload = IQueryItems<Partial<IQueueJob>>;

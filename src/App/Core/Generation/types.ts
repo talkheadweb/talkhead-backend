@@ -27,7 +27,7 @@ export interface IGeneration {
 // ── Search / filter keys ───────────────────────────────────────────────────
 export const GenerationSearchKeys:      (keyof IGeneration)[] = [];
 export const GenerationFilterKeys:      (keyof IGeneration)[] = ["status", "inputType"];
-export const GenerationExtraFilterKeys: string[]              = ["userId"];
+export const GenerationExtraFilterKeys: string[]              = ["userId", "dateFrom", "dateTo"];
 
 // ── Request DTOs ───────────────────────────────────────────────────────────
 export type TCreateGenerationBody = {

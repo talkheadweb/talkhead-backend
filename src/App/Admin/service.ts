@@ -55,6 +55,12 @@ const listUsers = async (
     if (instance) queryConditions.push(MongoQueryHelper(instance, String(key), value));
   }
 
+  const dateFrom = filterFields["dateFrom"];
+  const dateTo   = filterFields["dateTo"];
+  if (dateFrom || dateTo) {
+    queryConditions.push(MongoQueryHelper("DateRange", "createdAt", { min: dateFrom, max: dateTo }));
+  }
+
   const mongoQuery = queryConditions.length ? { $and: queryConditions } : {};
 
   const [users, total] = await Promise.all([

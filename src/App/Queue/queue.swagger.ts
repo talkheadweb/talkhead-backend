@@ -7,6 +7,7 @@
 
 import {
   created,
+  dateRangeParams,
   enumOf,
   errors,
   jsonBody,
@@ -61,6 +62,7 @@ const queueListParams: object[] = [
   queryParam("type",   enumOf(queueJobTypeValues),     "Filter by job type"),
   ...paginationParams,
   ...sortParams,
+  ...dateRangeParams,
 ];
 
 export const queuePaths: Record<string, object> = {

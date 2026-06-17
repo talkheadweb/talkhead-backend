@@ -1,5 +1,5 @@
 import {
-  binary, bool, enumOf, ok, created, errors,
+  binary, bool, dateRangeParams, enumOf, ok, created, errors,
   multipartBody, jsonBody, queryParam, paginationParams, sortParams,
   str, withTag,
 } from "@/Config/swagger/helpers";
@@ -41,6 +41,7 @@ const listParams: object[] = [
   queryParam("createdBy", { type: "string" },             "Filter by creator userId"),
   ...paginationParams,
   ...sortParams,
+  ...dateRangeParams,
 ];
 
 export const avatarPaths = {

@@ -1,5 +1,5 @@
 import {
-  binary, enumOf, ok, created, errors,
+  binary, dateRangeParams, enumOf, ok, created, errors,
   multipartBody, str, queryParam, paginationParams, sortParams,
   withTag,
 } from "@/Config/swagger/helpers";
@@ -33,6 +33,7 @@ const listParams: object[] = [
   queryParam("ownerId", { type: "string" },          "Filter by owner document id"),
   ...paginationParams,
   ...sortParams,
+  ...dateRangeParams,
 ];
 
 export const filePaths = {

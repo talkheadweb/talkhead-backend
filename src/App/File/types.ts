@@ -18,7 +18,7 @@ export interface IFileRecord {
 
 export const FileSearchKeys : (keyof IFileRecord)[] = ["originalName", "mimeType"];
 export const FileFilterKeys : (keyof IFileRecord)[] = ["type", "uploadedBy"];
-export const FileExtraFilterKeys: string[] = ["ownerId"];
+export const FileExtraFilterKeys: string[] = ["ownerId", "dateFrom", "dateTo"];
 
 export type TListFilesPayload = IQueryItems<Partial<IFileRecord>>;
 

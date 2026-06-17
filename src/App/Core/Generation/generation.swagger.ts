@@ -7,6 +7,7 @@
 
 import {
   created,
+  dateRangeParams,
   enumOf,
   errors,
   jsonBody,
@@ -53,6 +54,7 @@ const generationListParams: object[] = [
   queryParam("userId",    { type: "string" },                     "Filter by user (admin only)"),
   ...paginationParams,
   ...sortParams,
+  ...dateRangeParams,
 ];
 
 // ── Paths ──────────────────────────────────────────────────────────────────

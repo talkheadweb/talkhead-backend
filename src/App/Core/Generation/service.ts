@@ -94,6 +94,12 @@ const list = async (query: TListGenerationsPayload) => {
     conditions.push({ userId: new Types.ObjectId(filterFields["userId"]) });
   }
 
+  const dateFrom = filterFields["dateFrom"];
+  const dateTo   = filterFields["dateTo"];
+  if (dateFrom || dateTo) {
+    conditions.push(MongoQueryHelper("DateRange", "createdAt", { min: dateFrom, max: dateTo }));
+  }
+
   const mongoQuery = conditions.length ? { $and: conditions } : {};
 
   const [docs, total] = await Promise.all([

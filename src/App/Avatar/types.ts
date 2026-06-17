@@ -16,7 +16,7 @@ export interface IAvatar {
 
 export const AvatarSearchKeys: (keyof IAvatar)[] = ["title", "slug"];
 export const AvatarFilterKeys : (keyof IAvatar)[] = ["isActive", "createdBy"];
-export const AvatarExtraFilterKeys: string[] = [];
+export const AvatarExtraFilterKeys: string[] = ["dateFrom", "dateTo"];
 
 export type TListAvatarsPayload = IQueryItems<Partial<IAvatar>>;
 
