@@ -8,7 +8,7 @@ import { HashHelper } from "@/Utils/helper/hashHelper";
 import { calculatePagination, manageSorting, MongoQueryHelper } from "@/Utils/helper/queryOptimize";
 import { TMeta } from "@/Utils/types/query.type";
 import { Types } from "mongoose"; // needed for ObjectId search validation
-import { AdminUserFilterKeys, AdminUserSearchKeys, TAdminCreateUserBody, TAdminUpdateUserBody, TListUsersPayload } from "./types";
+import { AdminUserFilterKeys, AdminUserSearchKeys, TAdminChangeRoleBody, TAdminCreateUserBody, TAdminUpdateUserBody, TListUsersPayload } from "./types";
 
 const log = LogService.APPLICATION;
 
@@ -156,6 +156,23 @@ const changeUserPassword = async (userId: string, password: string): Promise<voi
   log.info("Admin changed user password — session revoked", { adminAction: true, userId });
 };
 
+// ── Change user role ───────────────────────────────────────────────────────
+const changeUserRole = async (userId: string, payload: TAdminChangeRoleBody): Promise<TUserPublic> => {
+  const user = await UserModel.findByIdAndUpdate(
+    userId,
+    { $set: { role: payload.role } },
+    { new: true },
+  );
+  if (!user) throw new CustomError("User not found.", 404);
+
+  // If the user is being demoted from admin, revoke their session so the
+  // old role is not cached in any active JWT.
+  await AuthRedisService.refreshToken.del(userId);
+
+  log.info("Admin changed user role — session revoked", { adminAction: true, userId, role: payload.role });
+  return toPublicUser(user);
+};
+
 // ── Delete user ────────────────────────────────────────────────────────────
 /**
  * Permanently deletes a user and revokes all their active tokens.
@@ -175,5 +192,6 @@ export const AdminService = {
   createUser,
   updateUser,
   changeUserPassword,
+  changeUserRole,
   deleteUser,
 };

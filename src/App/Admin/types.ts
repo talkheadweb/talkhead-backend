@@ -15,6 +15,7 @@ export const AdminUserExtraFilterKeys: string[]     = ["dateFrom", "dateTo"];
 export type TListUsersPayload = IQueryItems<Partial<IUser>>;
 
 // ── Request body types (derived from Zod — single source of truth) ─────────
-export type TAdminCreateUserBody   = z.infer<typeof AdminValidation.createUserSchema>["body"];
-export type TAdminUpdateUserBody   = z.infer<typeof AdminValidation.updateUserSchema>["body"];
+export type TAdminCreateUserBody     = z.infer<typeof AdminValidation.createUserSchema>["body"];
+export type TAdminUpdateUserBody     = z.infer<typeof AdminValidation.updateUserSchema>["body"];
 export type TAdminChangePasswordBody = z.infer<typeof AdminValidation.changeUserPasswordSchema>["body"];
+export type TAdminChangeRoleBody     = z.infer<typeof AdminValidation.changeUserRoleSchema>["body"];

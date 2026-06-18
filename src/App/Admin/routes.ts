@@ -15,8 +15,9 @@ adminRouter
   .get   ("/users",                                                                        AdminController.listUsers)
   .post  ("/users",          validateRequest(AdminValidation.createUserSchema),            AdminController.createUser)
   .get   ("/users/:id",      validateRequest(AdminValidation.getUserSchema),               AdminController.getUserById)
-  .patch ("/users/:id",      validateRequest(AdminValidation.updateUserSchema),            AdminController.updateUser)
-  .patch ("/users/:id/password", validateRequest(AdminValidation.changeUserPasswordSchema), AdminController.changeUserPassword)
+  .patch ("/users/:id",          validateRequest(AdminValidation.updateUserSchema),            AdminController.updateUser)
+  .patch ("/users/:id/role",     validateRequest(AdminValidation.changeUserRoleSchema),        AdminController.changeUserRole)
+  .patch ("/users/:id/password", validateRequest(AdminValidation.changeUserPasswordSchema),    AdminController.changeUserPassword)
   .delete("/users/:id",      validateRequest(AdminValidation.getUserSchema),               AdminController.deleteUser);
 
 export default adminRouter;

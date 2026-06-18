@@ -8,6 +8,7 @@ import {
   AdminUserExtraFilterKeys,
   AdminUserFilterKeys,
   TAdminChangePasswordBody,
+  TAdminChangeRoleBody,
   TAdminCreateUserBody,
   TAdminUpdateUserBody,
 } from "./types";
@@ -71,6 +72,18 @@ const changeUserPassword = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+/** PATCH /api/v1/admin/users/:id/role */
+const changeUserRole = catchAsync(async (req: Request, res: Response) => {
+  const body = req.body as TAdminChangeRoleBody;
+  const user = await AdminService.changeUserRole(req.params["id"] as string, body);
+  sendResponse.success(res, {
+    statusCode: 200,
+    message   : "User role updated successfully.",
+    data      : user,
+    req,
+  });
+});
+
 /** DELETE /api/v1/admin/users/:id */
 const deleteUser = catchAsync(async (req: Request, res: Response) => {
   await AdminService.deleteUser(req.params["id"] as string);
@@ -87,5 +100,6 @@ export const AdminController = {
   createUser,
   updateUser,
   changeUserPassword,
+  changeUserRole,
   deleteUser,
 };
