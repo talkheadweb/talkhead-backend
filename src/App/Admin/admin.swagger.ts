@@ -131,6 +131,21 @@ export const adminPaths = {
     }),
   },
 
+  "/admin/users/{id}/role": {
+
+    ...patch({
+      summary    : "Change a user's role",
+      description: "Promote a user to admin or demote an admin back to user. The user's active session is revoked immediately so the new role takes effect on their next login.",
+      secured    : true,
+      parameters : [userId],
+      body       : jsonBody({
+        required: ["role"],
+        props   : { role: enumOf(["user", "admin"]) },
+      }),
+      responses: { ...ok("User role updated successfully.", ref("UserPublic")), ...errors(400, 401, 403, 404) },
+    }),
+  },
+
   "/admin/users/{id}/password": {
 
     ...patch({

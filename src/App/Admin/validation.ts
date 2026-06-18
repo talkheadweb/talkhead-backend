@@ -35,11 +35,18 @@ const changeUserPasswordSchema = userIdParam.extend({
   }),
 });
 
+const changeUserRoleSchema = userIdParam.extend({
+  body: z.object({
+    role: z.nativeEnum(EUserRole, { required_error: "Role is required.", invalid_type_error: "Invalid role value." }),
+  }),
+});
+
 const getUserSchema = userIdParam;
 
 export const AdminValidation = {
   createUserSchema,
   updateUserSchema,
   changeUserPasswordSchema,
+  changeUserRoleSchema,
   getUserSchema,
 };
