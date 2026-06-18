@@ -10,8 +10,8 @@ services:
     # volumes:
     # - ../application-logs:/application-logs  # uncomment to enable file logging
     depends_on:
-      # mongo-server:
-      #   condition: service_healthy
+      mongo-server:
+        condition: service_healthy
       redis-server:
         condition: service_healthy
     networks:
@@ -31,60 +31,60 @@ services:
       start_period: 20s
     restart: always
 
-  # mongo-server:
-  #   image: mongo:7
-  #   env_file:
-  #     - .env
-  #   environment:
-  #     MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME}
-  #     MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
-  #     MONGO_INITDB_DATABASE: ${MONGO_DB_NAME}
-  #   command: [
-  #       "mongod",
+  mongo-server:
+    image: mongo:7
+    env_file:
+      - .env
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_DB_NAME}
+    command: [
+        "mongod",
 
-  #       # ── Auth ──────────────────────────────────────────────────────────────
-  #       "--auth",
+        # ── Auth ──────────────────────────────────────────────────────────────
+        "--auth",
 
-  #       # ── Memory (WiredTiger cache) ─────────────────────────────────────────
-  #       # Controls how much RAM MongoDB uses as a read cache for hot data.
-  #       # Your data is always stored on disk — this only affects query speed.
-  #       # Override with MONGO_WIREDTIGER_CACHE_GB in .env (default: 0.5 = 512 MB).
-  #       "--wiredTigerCacheSizeGB",
+        # ── Memory (WiredTiger cache) ─────────────────────────────────────────
+        # Controls how much RAM MongoDB uses as a read cache for hot data.
+        # Your data is always stored on disk — this only affects query speed.
+        # Override with MONGO_WIREDTIGER_CACHE_GB in .env (default: 0.5 = 512 MB).
+        "--wiredTigerCacheSizeGB",
 
-  #       "${MONGO_WIREDTIGER_CACHE_GB:-0.5}",
-  #       # ── Networking ────────────────────────────────────────────────────────
-  #       "--bind_ip_all",
-  #     ]
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         memory: ${MONGO_MEMORY_LIMIT:-700M} # must be > WiredTiger cache + ~200 MB overhead
-  #       reservations:
-  #         memory: ${MONGO_MEMORY_RESERVATION:-128M} # soft scheduling hint only — not a cap
-  #   volumes:
-  #     - mongo_data:/data/db
-  #   networks:
-  #     - backend # internal only — never exposed to Traefik
-  #   healthcheck:
-  #     test:
-  #       [
-  #         "CMD",
-  #         "mongosh",
-  #         "--quiet",
-  #         "--eval",
-  #         "db.adminCommand('ping').ok",
-  #         "--username",
-  #         "${MONGO_ROOT_USERNAME}",
-  #         "--password",
-  #         "${MONGO_ROOT_PASSWORD}",
-  #         "--authenticationDatabase",
-  #         "admin",
-  #       ]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 5
-  #     start_period: 30s
-  #   restart: always
+        "${MONGO_WIREDTIGER_CACHE_GB:-0.5}",
+        # ── Networking ────────────────────────────────────────────────────────
+        "--bind_ip_all",
+      ]
+    deploy:
+      resources:
+        limits:
+          memory: ${MONGO_MEMORY_LIMIT:-700M} # must be > WiredTiger cache + ~200 MB overhead
+        reservations:
+          memory: ${MONGO_MEMORY_RESERVATION:-128M} # soft scheduling hint only — not a cap
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - backend # internal only — never exposed to Traefik
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mongosh",
+          "--quiet",
+          "--eval",
+          "db.adminCommand('ping').ok",
+          "--username",
+          "${MONGO_ROOT_USERNAME}",
+          "--password",
+          "${MONGO_ROOT_PASSWORD}",
+          "--authenticationDatabase",
+          "admin",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
 
   redis-server:
     image: redis:7.4-alpine
