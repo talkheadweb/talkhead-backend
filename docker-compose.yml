@@ -49,23 +49,37 @@ services:
         # Controls how much RAM MongoDB uses as a read cache for hot data.
         # Your data is always stored on disk — this only affects query speed.
         # Override with MONGO_WIREDTIGER_CACHE_GB in .env (default: 0.5 = 512 MB).
-        "--wiredTigerCacheSizeGB", "${MONGO_WIREDTIGER_CACHE_GB:-0.5}",
+        "--wiredTigerCacheSizeGB",
 
+        "${MONGO_WIREDTIGER_CACHE_GB:-0.5}",
         # ── Networking ────────────────────────────────────────────────────────
         "--bind_ip_all",
       ]
     deploy:
       resources:
         limits:
-          memory: ${MONGO_MEMORY_LIMIT:-700M}        # must be > WiredTiger cache + ~200 MB overhead
+          memory: ${MONGO_MEMORY_LIMIT:-700M} # must be > WiredTiger cache + ~200 MB overhead
         reservations:
-          memory: ${MONGO_MEMORY_RESERVATION:-128M}  # soft scheduling hint only — not a cap
+          memory: ${MONGO_MEMORY_RESERVATION:-128M} # soft scheduling hint only — not a cap
     volumes:
       - mongo_data:/data/db
     networks:
-      - backend  # internal only — never exposed to Traefik
+      - backend # internal only — never exposed to Traefik
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok", "--username", "${MONGO_ROOT_USERNAME}", "--password", "${MONGO_ROOT_PASSWORD}", "--authenticationDatabase", "admin"]
+      test:
+        [
+          "CMD",
+          "mongosh",
+          "--quiet",
+          "--eval",
+          "db.adminCommand('ping').ok",
+          "--username",
+          "${MONGO_ROOT_USERNAME}",
+          "--password",
+          "${MONGO_ROOT_PASSWORD}",
+          "--authenticationDatabase",
+          "admin",
+        ]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -109,7 +123,6 @@ services:
         # Enables __keyevent@0__:expired notifications (used by RedisEventClient)
         "--notify-keyspace-events",
         "Ex",
-
         # ── Security ───────────────────────────────────────────────────────
         # Disable dangerous commands that could wipe or expose data
         # "--rename-command",     "FLUSHALL", "",
