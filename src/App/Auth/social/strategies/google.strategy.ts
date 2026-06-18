@@ -42,6 +42,7 @@ if (config.google) {
             role        : user.role,
             accessToken,
             refreshToken,
+            user        : { _id: user._id.toString(), name: user.name, email: user.email, role: user.role, profilePictureKey: user.profilePictureKey ?? null },
           });
         } catch (err) {
           log.error("Google OAuth strategy error", err as Error);

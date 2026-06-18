@@ -25,6 +25,7 @@ declare global {
       // Present only in OAuth callback controllers (set by the social-login strategy)
       accessToken ?: string;
       refreshToken?: string;
+      user        ?: { _id: string; name: string; email: string; role: string; profilePictureKey?: string | null };
     }
   }
 }

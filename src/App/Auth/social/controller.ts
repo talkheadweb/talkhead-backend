@@ -27,14 +27,18 @@ import passport from "passport";
 import {
   ACCESS_COOKIE_NAME,
   REFRESH_COOKIE_NAME,
+  SESSION_INFO_COOKIE_NAME,
   getAccessTokenCookieOptions,
   getRefreshTokenCookieOptions,
+  getSessionInfoCookieOptions,
 } from "../const";
 import { AuthService } from "../service";
+import { toSessionInfo } from "../utils";
 import { TClaimSocialCodeBody } from "../types";
 
-const { set: refreshCookieOptions } = getRefreshTokenCookieOptions(config.auth.cookie);
-const { set: accessCookieOptions  } = getAccessTokenCookieOptions(config.auth.cookie);
+const { set: refreshCookieOptions     } = getRefreshTokenCookieOptions(config.auth.cookie);
+const { set: accessCookieOptions      } = getAccessTokenCookieOptions(config.auth.cookie);
+const { set: sessionInfoCookieOptions } = getSessionInfoCookieOptions(config.auth.cookie);
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
 
@@ -124,6 +128,7 @@ const googleCallback = (req: Request, res: Response, next: NextFunction): void =
         const code = await AuthService.createSocialAuthCode({
           accessToken : oauthUser.accessToken!,
           refreshToken: oauthUser.refreshToken!,
+          user        : oauthUser.user!,
         });
         redirectToFrontend(res, { code }, frontendOrigin);
       } catch {
@@ -144,8 +149,9 @@ const claimSocialCode = catchAsync(async (req: Request, res: Response) => {
   const { code } = req.body as TClaimSocialCodeBody;
   const tokens = await AuthService.claimSocialAuthCode(code);
 
-  res.cookie(ACCESS_COOKIE_NAME,  tokens.accessToken,  accessCookieOptions);
-  res.cookie(REFRESH_COOKIE_NAME, tokens.refreshToken, refreshCookieOptions);
+  res.cookie(ACCESS_COOKIE_NAME,       tokens.accessToken,         accessCookieOptions);
+  res.cookie(REFRESH_COOKIE_NAME,      tokens.refreshToken,        refreshCookieOptions);
+  res.cookie(SESSION_INFO_COOKIE_NAME, toSessionInfo(tokens.user), sessionInfoCookieOptions);
 
   sendResponse.success(res, {
     statusCode: 200,

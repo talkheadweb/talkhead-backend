@@ -25,9 +25,12 @@ export const AUTH_REDIS_PREFIX = {
 // (e.g. dev-api.talkhead.ai + api.talkhead.ai with Domain=.talkhead.ai).
 // Production always uses the plain names — no config needed.
 const _suffix = process.env.NODE_ENV === "production" ? "" : "_dev";
-export const REFRESH_COOKIE_NAME = `refresh_token${_suffix}` as string;
-export const ACCESS_COOKIE_NAME  = `access_token${_suffix}` as string;
-
+export const REFRESH_COOKIE_NAME  = `refresh_token${_suffix}` as string;
+export const ACCESS_COOKIE_NAME   = `access_token${_suffix}` as string;
+// JS-readable (not httpOnly) — contains public user info only, never tokens.
+// Frontend reads this synchronously to know if a session exists and who the user is
+// without a network round-trip. Real authentication still uses the httpOnly cookies.
+export const SESSION_INFO_COOKIE_NAME = `session_info${_suffix}` as string;
 
 type CookieConfig = { sameSite: "lax" | "none" | "strict"; secure: boolean; domain?: string };
 
@@ -35,9 +38,6 @@ const baseOptions = (cookie: CookieConfig): CookieOptions => ({
   httpOnly: true,
   secure  : cookie.sameSite === "none" ? true : cookie.secure,
   sameSite: cookie.sameSite,
-  // domain is only set when AUTH_COOKIE_DOMAIN is configured.
-  // With a leading-dot domain (e.g. ".talkhead.ai") the browser shares the cookie
-  // across all subdomains, allowing socket.io (direct cross-origin) to receive it.
   ...(cookie.domain ? { domain: cookie.domain } : {}),
 });
 
@@ -53,6 +53,22 @@ export const getAccessTokenCookieOptions = (
   cookie: CookieConfig,
 ): { set: CookieOptions; clear: CookieOptions } => {
   const set: CookieOptions = { ...baseOptions(cookie), maxAge: AUTH_TTL.ACCESS * 1000 };
+  const { maxAge: _maxAge, ...clear } = set;
+  return { set, clear };
+};
+
+// session_info is intentionally NOT httpOnly so JS can read it.
+// It carries only public fields — never the token itself.
+export const getSessionInfoCookieOptions = (
+  cookie: CookieConfig,
+): { set: CookieOptions; clear: CookieOptions } => {
+  const base: CookieOptions = {
+    httpOnly: false,
+    secure  : cookie.sameSite === "none" ? true : cookie.secure,
+    sameSite: cookie.sameSite,
+    ...(cookie.domain ? { domain: cookie.domain } : {}),
+  };
+  const set: CookieOptions   = { ...base, maxAge: AUTH_TTL.REFRESH * 1000 };
   const { maxAge: _maxAge, ...clear } = set;
   return { set, clear };
 };

@@ -23,9 +23,13 @@ class TokenRedisService {
 
 // ── Social auth code store ─────────────────────────────────────────────────
 // Keyed by a random UUID (the "code"), NOT by userId.
-// Stores { accessToken, refreshToken } as JSON.
+// Stores { accessToken, refreshToken, user } as JSON.
 // Single-use: del() is called immediately on claim.
-export type TSocialCodePayload = { accessToken: string; refreshToken: string };
+export type TSocialCodePayload = {
+  accessToken : string;
+  refreshToken: string;
+  user        : { _id: string; name: string; email: string; role: string; profilePictureKey?: string | null };
+};
 
 class SocialCodeRedisService {
   private readonly prefix = AUTH_REDIS_PREFIX.SOCIAL_CODE;

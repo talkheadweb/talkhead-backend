@@ -108,6 +108,20 @@ export const resolveSession = async (
   return { uid, email: rp.email as string, role: rp.role as string, refreshed: true };
 };
 
+// ── Build the JS-readable session info cookie payload ─────────────────────
+// Contains only public, non-sensitive fields. The frontend reads this cookie
+// to render the UI without a network call — real auth uses the httpOnly tokens.
+export const toSessionInfo = (user: { _id: unknown; name: string; email: string; role: string; profilePictureKey?: string | null }): string =>
+  JSON.stringify({
+    uid  : String(user._id),
+    name : user.name,
+    email: user.email,
+    role : user.role,
+    // profilePictureKey included so the frontend can show an avatar immediately.
+    // This is the raw key/URL — same rules as TUserPublic.profilePictureKey.
+    profilePictureKey: user.profilePictureKey ?? null,
+  });
+
 // ── Strip sensitive fields from a Mongoose user document or lean plain object ──
 export const toPublicUser = (user: HydratedDocument<IUser> | (IUser & { _id: unknown })): TUserPublic => {
   // .lean() returns plain objects — toObject() doesn't exist on them
