@@ -9,10 +9,12 @@ format and the same end state — the client cannot distinguish which was used.
 
 | Token | Where | Lifetime | Purpose |
 |---|---|---|---|
-| **Access token** | `httpOnly` cookie (`access_token`) + JSON body | 15 min | Bearer token for API requests |
-| **Refresh token** | `httpOnly` cookie (`refresh_token`) | 7 days | Silent access token renewal |
+| **Access token** | `httpOnly` cookie (`access_token[suffix]`) + JSON body | 15 min | Bearer token for API requests |
+| **Refresh token** | `httpOnly` cookie (`refresh_token[suffix]`) | 7 days | Silent access token renewal |
 
 Both tokens are set as `httpOnly` cookies so the browser sends them automatically — **zero frontend token management required** for web clients. The access token is also returned in the JSON body for mobile / API clients that can't read cookies.
+
+**Cookie name suffix:** in development (`NODE_ENV=development`) the cookie names are automatically `access_token_dev` and `refresh_token_dev`. In production they are the plain `access_token` and `refresh_token`. This isolates sessions when dev and prod share the same root domain (e.g. `dev-api.talkhead.ai` and `api.talkhead.ai`) — no extra configuration needed.
 
 The refresh token is stored in Redis on login and deleted on logout/password-change/reset, enabling instant revocation even before the JWT itself expires.
 

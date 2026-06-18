@@ -7,7 +7,6 @@ import { Request, Response } from "express";
 import {
   ACCESS_COOKIE_NAME,
   REFRESH_COOKIE_NAME,
-  COOKIE_NAME,
   getAccessTokenCookieOptions,
   getRefreshTokenCookieOptions,
 } from "./const";
@@ -70,7 +69,7 @@ const login = catchAsync(async (req: Request, res: Response) => {
 
 /** POST /api/v1/auth/logout */
 const logout = catchAsync(async (req: Request, res: Response) => {
-  const token = req.cookies[COOKIE_NAME] as string | undefined;
+  const token = req.cookies[REFRESH_COOKIE_NAME] as string | undefined;
 
   if (token) {
     try {

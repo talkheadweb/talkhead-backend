@@ -20,11 +20,14 @@ export const AUTH_REDIS_PREFIX = {
 } as const;
 
 // ── Cookie names ───────────────────────────────────────────────────────────
-export const REFRESH_COOKIE_NAME = "refresh_token" as const;
-export const ACCESS_COOKIE_NAME = "access_token" as const;
+// In development, a "_dev" suffix is appended automatically so dev and prod
+// cookies never collide when both share the same root domain
+// (e.g. dev-api.talkhead.ai + api.talkhead.ai with Domain=.talkhead.ai).
+// Production always uses the plain names — no config needed.
+const _suffix = process.env.NODE_ENV === "production" ? "" : "_dev";
+export const REFRESH_COOKIE_NAME = `refresh_token${_suffix}` as string;
+export const ACCESS_COOKIE_NAME  = `access_token${_suffix}` as string;
 
-/** @deprecated use REFRESH_COOKIE_NAME */
-export const COOKIE_NAME = REFRESH_COOKIE_NAME;
 
 type CookieConfig = { sameSite: "lax" | "none" | "strict"; secure: boolean; domain?: string };
 
