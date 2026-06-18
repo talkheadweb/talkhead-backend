@@ -98,6 +98,7 @@ The app runs as non-root (`node` user). Redis data persists in the `redis_data` 
 - Set `AUTH_COOKIE_SAMESITE=none`, `AUTH_COOKIE_SECURE=true`, and `AUTH_COOKIE_DOMAIN=.talkhead.ai` for cross-origin subdomain deployments
 - Mount a volume for logs if you want log persistence outside the container
 - Consider a reverse proxy (nginx / Caddy) in front for TLS termination
+- Redis **must** run with `--maxmemory-policy noeviction` (already set in `docker-compose.yml`). BullMQ job keys have no TTL — eviction policies that remove non-expiring keys will corrupt the queue. You will see `IMPORTANT! Eviction policy is volatile-lru` in the logs if this is misconfigured.
 
 ---
 
@@ -154,8 +155,8 @@ Three env vars control cookie behaviour. All three must be consistent:
 
 | `NODE_ENV` | Cookie names |
 |---|---|
-| `development` | `access_token_dev`, `refresh_token_dev` |
-| `production` | `access_token`, `refresh_token` |
+| `development` | `access_token_dev`, `refresh_token_dev`, `session_info_dev` |
+| `production` | `access_token`, `refresh_token`, `session_info` |
 
 When dev and prod share the same root domain, the browser sends `Domain=.talkhead.ai` cookies to both environments. Because the names differ, a dev login cookie is invisible to prod and vice versa. The ultimate security boundary is always the JWT secret (different per env) — the name difference is a clean first layer that prevents cross-env noise entirely.
 
