@@ -153,7 +153,7 @@ Issue new access_token cookie + proceed with original request
 Request succeeds — user never sees a 401
 ```
 
-> **Web clients:** The frontend calls the backend directly with `credentials: "include"`. The backend's CORS config (`Access-Control-Allow-Credentials: true` + exact origin) and `SameSite=None; Secure; Domain=.talkhead.ai` cookie attributes ensure the browser stores the refreshed `access_token` cookie transparently — no proxy required.
+> **Web clients:** Browser fetches go through the Next.js proxy route handler (`src/app/api/[...path]/route.ts`) as same-origin requests. The proxy forwards the backend's `Set-Cookie` headers to the browser using `getSetCookie()` (which keeps each header separate — `forEach()` would merge them into one malformed header that browsers reject). See `docs/guides/frontend-proxy-setup.md` for implementation details.
 
 ### Forgot password
 

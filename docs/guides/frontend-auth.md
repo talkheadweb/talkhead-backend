@@ -206,24 +206,35 @@ export default function AdminPanel() {
 
 ## Handling 401 responses globally
 
-Any API call can return 401 if the session expires mid-session (e.g. admin revoked the account). Add a global fetch interceptor:
+Any API call can return 401 if the session expires mid-session (e.g. admin revoked the account). The `apiRequest` utility handles this globally:
 
 ```ts
-// utils/api.ts
-export async function apiFetch(url: string, options?: RequestInit) {
-  const res = await fetch(url, { credentials: "include", ...options });
+export async function apiRequest<T>(
+  path: string,
+  init: RequestInit = {},
+  opts: { skipAuthRedirect?: boolean } = {},
+): Promise<T> {
+  const response = await fetch(url, { credentials: "include", ...init });
 
-  if (res.status === 401) {
-    // Session gone — clear local state and redirect
+  if (response.status === 401 && typeof window !== "undefined" && !opts.skipAuthRedirect) {
     window.location.href = "/login";
-    return res;
+    throw new ApiError("Session expired. Redirecting to login.", 401);
   }
-
-  return res;
+  // ...
 }
 ```
 
-Use `apiFetch` everywhere instead of raw `fetch`. This way you never need to check for 401 in individual components.
+**Important:** Pass `skipAuthRedirect: true` on the login and register endpoints. Those routes intentionally return 401 for bad credentials — without the flag, the global handler would intercept and hide the real error ("Invalid email or password.") behind a redirect loop.
+
+```ts
+// ✅ correct — bad credentials show in the form, not as a redirect
+await apiRequest("/auth/login", { method: "POST", body: ... }, { skipAuthRedirect: true });
+
+// ❌ wrong — 401 from wrong password triggers redirect to /login
+await apiRequest("/auth/login", { method: "POST", body: ... });
+```
+
+The `AuthProvider` also guards against redirect loops: if `/auth/me` returns 401 and the user is already on `/login` (e.g. stale cookies from a previous environment), it sets `user = null` without redirecting — no infinite reload.
 
 ---
 
