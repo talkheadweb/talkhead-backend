@@ -127,7 +127,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     // Validate the actual session (one network call on app load)
-    fetch("/api/proxy/auth/me", { credentials: "include" })
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/auth/me`, { credentials: "include" })
       .then(r => r.ok ? r.json() : null)
       .then(data => setUser(data?.data ?? null))
       .catch(() => setUser(null))
@@ -231,7 +231,7 @@ Use `apiFetch` everywhere instead of raw `fetch`. This way you never need to che
 
 ```ts
 async function logout() {
-  await fetch("/api/proxy/auth/logout", {
+  await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/auth/logout`, {
     method     : "POST",
     credentials: "include",
   });

@@ -153,11 +153,7 @@ Issue new access_token cookie + proceed with original request
 Request succeeds — user never sees a 401
 ```
 
-> **Proxy required for web:** The new access token cookie is set by the backend in the
-> API response. If the frontend uses a proper reverse-proxy route handler (see
-> `docs/guides/frontend-proxy-setup.md`), the `Set-Cookie` header is forwarded to the
-> browser and the cookie updates transparently. A plain URL rewrite (e.g. Next.js
-> `rewrites()`) drops response headers and will swallow the new cookie.
+> **Web clients:** The frontend calls the backend directly with `credentials: "include"`. The backend's CORS config (`Access-Control-Allow-Credentials: true` + exact origin) and `SameSite=None; Secure; Domain=.talkhead.ai` cookie attributes ensure the browser stores the refreshed `access_token` cookie transparently — no proxy required.
 
 ### Forgot password
 
