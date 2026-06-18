@@ -7,12 +7,15 @@ format and the same end state — the client cannot distinguish which was used.
 
 ## Tokens
 
-| Token | Where | Lifetime | Purpose |
-|---|---|---|---|
-| **Access token** | `httpOnly` cookie (`access_token`) + JSON body | 15 min | Bearer token for API requests |
-| **Refresh token** | `httpOnly` cookie (`refresh_token`) | 7 days | Silent access token renewal |
+| Token | Where | `httpOnly` | Lifetime | Purpose |
+|---|---|---|---|---|
+| **Access token** | Cookie (`access_token[suffix]`) + JSON body | ✅ Yes | 15 min | Bearer token for API requests — sent automatically by browser |
+| **Refresh token** | Cookie (`refresh_token[suffix]`) | ✅ Yes | 7 days | Silent access token renewal |
+| **session_info** | Cookie (`session_info[suffix]`) | ❌ No (JS-readable) | 7 days | Public user data for frontend UI (uid, name, email, role, profilePictureKey) |
 
-Both tokens are set as `httpOnly` cookies so the browser sends them automatically — **zero frontend token management required** for web clients. The access token is also returned in the JSON body for mobile / API clients that can't read cookies.
+`access_token` and `refresh_token` are `httpOnly` — the browser sends them automatically and JS cannot read them. `session_info` is intentionally NOT `httpOnly` so the frontend can read it synchronously to decide if a user is logged in without making a network call. The access token is also returned in the JSON body for mobile / API clients that can't read cookies.
+
+**Cookie name suffix:** in development (`NODE_ENV=development`) the cookie names are automatically `access_token_dev`, `refresh_token_dev`, and `session_info_dev`. In production they are the plain `access_token`, `refresh_token`, and `session_info`. This isolates sessions when dev and prod share the same root domain (e.g. `dev-api.talkhead.ai` and `api.talkhead.ai`) — no extra configuration needed.
 
 The refresh token is stored in Redis on login and deleted on logout/password-change/reset, enabling instant revocation even before the JWT itself expires.
 
@@ -83,6 +86,7 @@ Store refresh token in Redis (auth:refresh:<userId>, 7 day TTL)
   body: { user, accessToken }                    ← accessToken also in body for mobile clients
   Set-Cookie: access_token=<token>;  HttpOnly; SameSite=none; Secure; Domain=.talkhead.ai; Max-Age=900
   Set-Cookie: refresh_token=<token>; HttpOnly; SameSite=none; Secure; Domain=.talkhead.ai; Max-Age=604800
+  Set-Cookie: session_info=<json>;             SameSite=none; Secure; Domain=.talkhead.ai; Max-Age=604800
 ```
 
 ### Logout
@@ -98,7 +102,7 @@ Verify refresh token → extract userId
 Delete auth:refresh:<userId> from Redis
        │
        ▼
-Clear access_token + refresh_token cookies
+Clear access_token + refresh_token + session_info cookies
        │
        ▼
 200 OK
@@ -149,11 +153,7 @@ Issue new access_token cookie + proceed with original request
 Request succeeds — user never sees a 401
 ```
 
-> **Proxy required for web:** The new access token cookie is set by the backend in the
-> API response. If the frontend uses a proper reverse-proxy route handler (see
-> `docs/guides/frontend-proxy-setup.md`), the `Set-Cookie` header is forwarded to the
-> browser and the cookie updates transparently. A plain URL rewrite (e.g. Next.js
-> `rewrites()`) drops response headers and will swallow the new cookie.
+> **Web clients:** Browser fetches go through the Next.js proxy route handler (`src/app/api/[...path]/route.ts`) as same-origin requests. The proxy forwards the backend's `Set-Cookie` headers to the browser using `getSetCookie()` (which keeps each header separate — `forEach()` would merge them into one malformed header that browsers reject). See `docs/guides/frontend-proxy-setup.md` for implementation details.
 
 ### Forgot password
 
@@ -289,11 +289,12 @@ Content-Type: application/json
 |-------|------|----------|-------------|
 | `code` | UUID string | ✅ | The value from the `?code=` query param in the `/auth/callback` redirect |
 
-**Response 200** — sets two httpOnly cookies, identical to a regular login:
+**Response 200** — sets three cookies, identical to a regular login:
 
 ```
 Set-Cookie: access_token=<jwt>;  HttpOnly; SameSite=none; Secure; Domain=.talkhead.ai; Max-Age=900
 Set-Cookie: refresh_token=<jwt>; HttpOnly; SameSite=none; Secure; Domain=.talkhead.ai; Max-Age=604800
+Set-Cookie: session_info=<json>;           SameSite=none; Secure; Domain=.talkhead.ai; Max-Age=604800
 
 { "success": true, "message": "Social login successful." }
 ```

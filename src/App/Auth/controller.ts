@@ -7,11 +7,13 @@ import { Request, Response } from "express";
 import {
   ACCESS_COOKIE_NAME,
   REFRESH_COOKIE_NAME,
-  COOKIE_NAME,
+  SESSION_INFO_COOKIE_NAME,
   getAccessTokenCookieOptions,
   getRefreshTokenCookieOptions,
+  getSessionInfoCookieOptions,
 } from "./const";
 import { AuthService } from "./service";
+import { toSessionInfo } from "./utils";
 import {
   TChangePasswordBody,
   TForgotPasswordBody,
@@ -23,8 +25,9 @@ import {
   TVerifyEmailBody,
 } from "./types";
 
-const { set: refreshCookieOptions, clear: clearRefreshCookieOptions } = getRefreshTokenCookieOptions(config.auth.cookie);
-const { set: accessCookieOptions,  clear: clearAccessCookieOptions  } = getAccessTokenCookieOptions(config.auth.cookie);
+const { set: refreshCookieOptions,     clear: clearRefreshCookieOptions     } = getRefreshTokenCookieOptions(config.auth.cookie);
+const { set: accessCookieOptions,      clear: clearAccessCookieOptions      } = getAccessTokenCookieOptions(config.auth.cookie);
+const { set: sessionInfoCookieOptions, clear: clearSessionInfoCookieOptions } = getSessionInfoCookieOptions(config.auth.cookie);
 
 // ── Public endpoints ───────────────────────────────────────────────────────
 
@@ -57,8 +60,9 @@ const login = catchAsync(async (req: Request, res: Response) => {
   // Both tokens delivered as httpOnly cookies — zero client-side token management needed.
   // access_token  short-lived (15 min) — refreshed silently by authenticate middleware
   // refresh_token long-lived  (7 days) — used only for silent refresh, never read by JS
-  res.cookie(ACCESS_COOKIE_NAME,  accessToken,  accessCookieOptions);
-  res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions);
+  res.cookie(ACCESS_COOKIE_NAME,       accessToken,           accessCookieOptions);
+  res.cookie(REFRESH_COOKIE_NAME,      refreshToken,          refreshCookieOptions);
+  res.cookie(SESSION_INFO_COOKIE_NAME, toSessionInfo(user),   sessionInfoCookieOptions);
 
   sendResponse.success(res, {
     statusCode: 200,
@@ -70,7 +74,7 @@ const login = catchAsync(async (req: Request, res: Response) => {
 
 /** POST /api/v1/auth/logout */
 const logout = catchAsync(async (req: Request, res: Response) => {
-  const token = req.cookies[COOKIE_NAME] as string | undefined;
+  const token = req.cookies[REFRESH_COOKIE_NAME] as string | undefined;
 
   if (token) {
     try {
@@ -82,8 +86,9 @@ const logout = catchAsync(async (req: Request, res: Response) => {
     }
   }
 
-  res.clearCookie(ACCESS_COOKIE_NAME,  clearAccessCookieOptions);
-  res.clearCookie(REFRESH_COOKIE_NAME, clearRefreshCookieOptions);
+  res.clearCookie(ACCESS_COOKIE_NAME,       clearAccessCookieOptions);
+  res.clearCookie(REFRESH_COOKIE_NAME,      clearRefreshCookieOptions);
+  res.clearCookie(SESSION_INFO_COOKIE_NAME, clearSessionInfoCookieOptions);
 
   sendResponse.success(res, {
     statusCode: 200,

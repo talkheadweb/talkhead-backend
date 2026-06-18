@@ -144,10 +144,19 @@ async function proxy(req: NextRequest): Promise<NextResponse> {
   });
 
   const responseHeaders = new Headers();
+
   upstream.headers.forEach((value, key) => {
     if (key.toLowerCase() === "transfer-encoding") return;
+    if (key.toLowerCase() === "set-cookie") return; // handled below
     responseHeaders.append(key, value);
   });
+
+  // getSetCookie() returns each Set-Cookie header as a separate string.
+  // forEach() joins multiple Set-Cookie values with commas — browsers reject
+  // that as one malformed header and store nothing.
+  for (const cookie of upstream.headers.getSetCookie()) {
+    responseHeaders.append("set-cookie", cookie);
+  }
 
   return new NextResponse(upstream.body, {
     status : upstream.status,

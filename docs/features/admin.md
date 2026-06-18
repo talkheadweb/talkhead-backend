@@ -16,6 +16,7 @@ Base path: `GET|POST|PATCH|DELETE /api/v1/admin/users`
 | `POST`   | `/admin/users`                | Create a new user               |
 | `GET`    | `/admin/users/:id`            | Get a single user by ID         |
 | `PATCH`  | `/admin/users/:id`            | Update user fields              |
+| `PATCH`  | `/admin/users/:id/role`       | Promote or demote a user's role |
 | `PATCH`  | `/admin/users/:id/password`   | Force-set a user's password     |
 | `DELETE` | `/admin/users/:id`            | Delete a user                   |
 
@@ -142,6 +143,30 @@ Partially updates a user's profile. At least one field is required. To suspend a
 
 ---
 
+### `PATCH /admin/users/:id/role` — Change User Role
+
+Promotes a user to admin or demotes an admin back to user. The target user's active session is revoked immediately — they must log in again for the new role to take effect in their JWT.
+
+**Request body**
+
+```json
+{ "role": "admin" }
+```
+
+| Field  | Required | Values               |
+|--------|----------|----------------------|
+| `role` | ✓        | `"user"` or `"admin"` |
+
+**Response 200** — returns the updated user.
+
+**Errors**
+- `400` — Missing role / invalid ObjectId
+- `404` — User not found
+
+> This is the recommended way to create your first admin user after bootstrapping the server. See [`docs/guides/promote-admin.md`](../guides/promote-admin.md) for the one-time DB procedure to promote the very first account before any admin exists.
+
+---
+
 ### `PATCH /admin/users/:id/password` — Change User Password
 
 Force-sets a new password for any user. The user's session is revoked after the password change, requiring them to log in again.
@@ -201,6 +226,7 @@ __tests__/Admin/
   get-user.test.ts             # 5 cases
   create-user.test.ts          # 7 cases
   update-user.test.ts          # 8 cases
+  change-user-role.test.ts     # 5 cases
   change-user-password.test.ts # 6 cases
   delete-user.test.ts          # 5 cases
 ```
@@ -219,4 +245,4 @@ __tests__/Admin/
 
 ## Swagger Docs
 
-Available at `/api/docs` in development. All 6 endpoints are documented under the **Admin** tag with full request/response schemas.
+Available at `/api/docs` in development. All 7 endpoints are documented under the **Admin** tag with full request/response schemas.

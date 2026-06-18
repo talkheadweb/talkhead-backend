@@ -50,9 +50,16 @@ The server crashes at startup if any required variable is missing (Zod validatio
 | `APPLICATION_LOG_DIR` | `../application-logs` | Log file directory |
 | `APPLICATION_LOG_MAX_FILES` | `15d` | Log retention period |
 | `APPLICATION_LOG_MAX_SIZE` | `20m` | Max log file size before rotation |
-| `RATE_LIMIT_GLOBAL_MAX` | `300` | Global rate limit (req / 15 min) |
+| `RATE_LIMIT_GLOBAL_MAX` | `300` | Global rate limit (req / 1 min, production only) |
 | `RATE_LIMIT_AUTH_MAX` | `10` | Login attempts (per 15 min) |
 | `RATE_LIMIT_EMAIL_MAX` | `5` | Email-sending requests (per 1 hr) |
+| `MONGO_URI` | `mongodb://user:pass@mongo-server:27017/db?authSource=admin` | MongoDB connection string (see URI formats in `.env.example`) |
+| `MONGO_ROOT_USERNAME` | `admin` | MongoDB root username (Docker Compose only — init-only, read once on first deploy) |
+| `MONGO_ROOT_PASSWORD` | *(strong password)* | MongoDB root password (Docker Compose only — init-only) |
+| `MONGO_DB_NAME` | `talkhead-backend` | MongoDB database name (Docker Compose only) |
+| `MONGO_WIREDTIGER_CACHE_GB` | `0.5` | MongoDB RAM cache size in GB (Docker Compose only) |
+| `MONGO_MEMORY_LIMIT` | `700M` | Docker hard memory ceiling for MongoDB — must be cache × 1024 + 200 MB |
+| `MONGO_MEMORY_RESERVATION` | `128M` | Docker soft scheduling hint for MongoDB |
 
 ---
 
@@ -91,6 +98,7 @@ The app runs as non-root (`node` user). Redis data persists in the `redis_data` 
 - Set `AUTH_COOKIE_SAMESITE=none`, `AUTH_COOKIE_SECURE=true`, and `AUTH_COOKIE_DOMAIN=.talkhead.ai` for cross-origin subdomain deployments
 - Mount a volume for logs if you want log persistence outside the container
 - Consider a reverse proxy (nginx / Caddy) in front for TLS termination
+- Redis **must** run with `--maxmemory-policy noeviction` (already set in `docker-compose.yml`). BullMQ job keys have no TTL — eviction policies that remove non-expiring keys will corrupt the queue. You will see `IMPORTANT! Eviction policy is volatile-lru` in the logs if this is misconfigured.
 
 ---
 
@@ -139,8 +147,18 @@ Three env vars control cookie behaviour. All three must be consistent:
 | Setup | `AUTH_COOKIE_SAMESITE` | `AUTH_COOKIE_SECURE` | `AUTH_COOKIE_DOMAIN` |
 |---|---|---|---|
 | Local HTTP development | `lax` | `false` | *(unset)* |
-| Frontend + API on same subdomain root (e.g. `demo.talkhead.ai` + `dev-api.talkhead.ai`) | `none` | `true` | `.talkhead.ai` |
-| Frontend + API on completely different domains | `none` | `true` | *(unset — domain scope won't help across different TLDs)* |
+| Dev server sharing root domain with prod | `none` | `true` | `.talkhead.ai` |
+| Prod server | `none` | `true` | `.talkhead.ai` |
+| Frontend + API on completely different domains | `none` | `true` | *(unset)* |
+
+**Cookie name isolation (automatic):** cookie names are derived from `NODE_ENV` automatically — no extra config needed:
+
+| `NODE_ENV` | Cookie names |
+|---|---|
+| `development` | `access_token_dev`, `refresh_token_dev`, `session_info_dev` |
+| `production` | `access_token`, `refresh_token`, `session_info` |
+
+When dev and prod share the same root domain, the browser sends `Domain=.talkhead.ai` cookies to both environments. Because the names differ, a dev login cookie is invisible to prod and vice versa. The ultimate security boundary is always the JWT secret (different per env) — the name difference is a clean first layer that prevents cross-env noise entirely.
 
 **Why `AUTH_COOKIE_DOMAIN` is required for subdomain deployments:**
 
@@ -180,4 +198,9 @@ with `getPresignedUrl()`.
 - [ ] Redis password is set (`REDIS_PASSWORD`)
 - [ ] Log directory is writable and persisted
 - [ ] Rate limits reviewed for your expected traffic (`RATE_LIMIT_*`)
+- [ ] `NODE_ENV=production` on prod server, `NODE_ENV=development` on dev server (cookie suffix is derived automatically)
+- [ ] JWT secrets are **different** between dev and prod (generate independently with `openssl rand -hex 32`)
 - [ ] MongoDB connection string uses a dedicated user with least-privilege access
+- [ ] MongoDB Docker memory values set correctly (`MONGO_WIREDTIGER_CACHE_GB` × 1024 + 200 MB < `MONGO_MEMORY_LIMIT`)
+- [ ] See [`docs/guides/mongodb-docker.md`](guides/mongodb-docker.md) for MongoDB memory tuning and credential rotation procedures
+- [ ] See [`docs/guides/promote-admin.md`](guides/promote-admin.md) for bootstrapping the first admin account
