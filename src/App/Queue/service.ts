@@ -1,150 +1,100 @@
-/**
- * Queue service — manages BullMQ jobs via REST.
- *
- * Reads job state directly from BullMQ (Redis). No MongoDB model.
- * Business history is stored in each feature's own model (e.g. GenerationModel).
- */
-
-import { bullQueue, QueueUtil } from "@/Config/queue";
+import QueueJobModel from "@/App/Queue/model";
+import { QueueUtil } from "@/Config/queue";
+import { QueueJobStatus } from "@/Config/queue/const";
+import { IQueueJob } from "@/Config/queue/types";
+import { calculatePagination, manageSorting, MongoQueryHelper } from "@/Utils/helper/queryOptimize";
 import CustomError from "@/Utils/errors/customError.class";
-import { TCreateQueueJobBody, TQueueJobStatus } from "./types";
+import { Types } from "mongoose";
 import { v4 as uuidv4 } from "uuid";
+import {
+  QueueJobFilterKeys,
+  QueueJobSearchKeys,
+  TCreateQueueJobBody,
+  TListQueueJobsPayload,
+} from "./types";
 
 // ── Create ─────────────────────────────────────────────────────────────────
 const create = async (body: TCreateQueueJobBody) => {
   const recordId = `QJ-${uuidv4().replace(/-/g, "").slice(0, 8)}`;
-
-  const job = await QueueUtil.enqueue(recordId, body.type, body.payload, {
+  const { queueJobId } = await QueueUtil.enqueue(recordId, body.type, body.payload, {
     priority: body.priority,
     delay   : body.delay,
   });
-
-  return {
-    recordId,
-    bullJobId: job.id,
-    type     : body.type,
-    status   : "pending" as TQueueJobStatus,
-    payload  : body.payload,
-    note     : body.note,
-  };
+  return QueueJobModel.findById(queueJobId).lean();
 };
 
 // ── List ───────────────────────────────────────────────────────────────────
-export type TListQueueQuery = {
-  status?   : string;
-  type?     : string;
-  search?   : string;   // matches recordId or bullJobId (partial)
-  page?     : number;
-  limit?    : number;
-  sortBy?   : string;
-  sortOrder?: "asc" | "desc";
-};
+const list = async (query: TListQueueJobsPayload) => {
+  const { page, limit, skip } = calculatePagination(query.paginationFields);
+  const { sortBy, sortOrder } = manageSorting<IQueueJob>(query.sortFields);
+  const { search }   = query.searchFields as { search?: string };
+  const filterFields = query.filterFields as Record<string, string>;
 
-const VALID_STATUSES = ["waiting", "active", "completed", "failed", "delayed", "paused"] as const;
+  const conditions: Record<string, unknown>[] = [];
 
-const list = async (query: TListQueueQuery = {}) => {
-  const {
-    status,
-    type,
-    search,
-    page      = 1,
-    limit     = 10,
-    sortBy    = "createdAt",
-    sortOrder = "desc",
-  } = query;
-
-  // Fetch from BullMQ — filter by BullMQ status if provided, otherwise fetch common states
-  const statuses = (status && VALID_STATUSES.includes(status as any))
-    ? [status as typeof VALID_STATUSES[number]]
-    : (["waiting", "active", "failed", "delayed"] as typeof VALID_STATUSES[number][]);
-
-  // Fetch a generous batch so we can filter + sort client-side (BullMQ has no query API)
-  const rawJobs = await bullQueue.getJobs(statuses, 0, 999);
-
-  // Map to response shape
-  let items = await Promise.all(
-    rawJobs.map(async (job) => ({
-      bullJobId   : job.id       as string,
-      recordId    : job.data.recordId,
-      type        : job.data.type,
-      status      : await job.getState(),
-      payload     : job.data.payload,
-      attempts    : job.attemptsMade,
-      createdAt   : new Date(job.timestamp),
-      processedAt : job.processedOn ? new Date(job.processedOn) : null,
-      finishedAt  : job.finishedOn  ? new Date(job.finishedOn)  : null,
-      failedReason: job.failedReason ?? null,
-    })),
-  );
-
-  // Filter by type (job.data.type)
-  if (type) {
-    items = items.filter((j) => j.type === type);
-  }
-
-  // Filter by search — partial match on recordId or bullJobId
   if (search) {
-    const q = search.toLowerCase();
-    items = items.filter(
-      (j) => j.recordId.toLowerCase().includes(q) || j.bullJobId.toLowerCase().includes(q),
+    const orConditions = QueueJobSearchKeys.map(key =>
+      MongoQueryHelper("String", String(key), search),
     );
+    if (Types.ObjectId.isValid(search)) orConditions.push({ _id: search });
+    conditions.push({ $or: orConditions });
   }
 
-  // Sort
-  items.sort((a, b) => {
-    const aVal = (a as Record<string, any>)[sortBy] ?? a.createdAt;
-    const bVal = (b as Record<string, any>)[sortBy] ?? b.createdAt;
-    const cmp  = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
-    return sortOrder === "asc" ? cmp : -cmp;
-  });
+  for (const key of QueueJobFilterKeys) {
+    const value = filterFields[String(key)];
+    if (!value) continue;
+    const instance = QueueJobModel.schema.path(String(key))?.instance as Parameters<typeof MongoQueryHelper>[0] | undefined;
+    if (instance) conditions.push(MongoQueryHelper(instance, String(key), value));
+  }
 
-  // Paginate
-  const total      = items.length;
-  const skip       = (page - 1) * limit;
-  const pagedItems = items.slice(skip, skip + limit);
+  const dateFrom = filterFields["dateFrom"];
+  const dateTo   = filterFields["dateTo"];
+  if (dateFrom || dateTo) {
+    conditions.push(MongoQueryHelper("DateRange", "createdAt", { min: dateFrom, max: dateTo }));
+  }
 
-  return {
-    items: pagedItems,
-    meta : { page, limit, total, totalPages: Math.ceil(total / limit) },
-  };
+  const mongoQuery = conditions.length ? { $and: conditions } : {};
+
+  const [items, total] = await Promise.all([
+    QueueJobModel
+      .find(mongoQuery)
+      .sort({ [String(sortBy)]: sortOrder })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    QueueJobModel.countDocuments(mongoQuery),
+  ]);
+
+  return { items, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
 };
 
 // ── Get one ────────────────────────────────────────────────────────────────
-const getByBullJobId = async (bullJobId: string) => {
-  const job = await bullQueue.getJob(bullJobId);
-  if (!job) throw new CustomError("Queue job not found.", 404);
-
-  const state = await job.getState();
-  return {
-    bullJobId   : job.id,
-    recordId    : job.data.recordId,
-    type        : job.data.type,
-    status      : state,
-    payload     : job.data.payload,
-    progress    : job.progress,
-    attempts    : job.attemptsMade,
-    createdAt   : new Date(job.timestamp),
-    processedAt : job.processedOn ? new Date(job.processedOn) : null,
-    finishedAt  : job.finishedOn  ? new Date(job.finishedOn)  : null,
-    failedReason: job.failedReason ?? null,
-  };
+const getById = async (id: string) => {
+  const doc = await QueueJobModel.findById(id).lean();
+  if (!doc) throw new CustomError("Queue job not found.", 404);
+  return doc;
 };
 
 // ── Cancel ─────────────────────────────────────────────────────────────────
-const cancel = async (bullJobId: string) => {
-  const job = await bullQueue.getJob(bullJobId);
-  if (!job) throw new CustomError("Queue job not found.", 404);
+const cancel = async (id: string) => {
+  const doc = await QueueJobModel.findById(id);
+  if (!doc) throw new CustomError("Queue job not found.", 404);
 
-  const state = await job.getState();
-  if (state === "active") {
+  if (doc.status === QueueJobStatus.PROCESSING) {
     throw new CustomError("Cannot cancel a job that is currently being processed.", 409);
   }
-  if (state === "completed") {
+  if (doc.status === QueueJobStatus.COMPLETED) {
     throw new CustomError("Cannot cancel a completed job.", 409);
   }
+  if (doc.status === QueueJobStatus.CANCELLED) {
+    throw new CustomError("Job is already cancelled.", 409);
+  }
 
-  await job.remove();
-  return { bullJobId, recordId: job.data.recordId, type: job.data.type, status: "cancelled" };
+  await QueueUtil.remove(doc.recordId).catch(() => {});
+
+  doc.status = QueueJobStatus.CANCELLED;
+  await doc.save();
+  return doc;
 };
 
-export const QueueService = { create, list, getByBullJobId, cancel };
+export const QueueService = { create, list, getById, cancel };

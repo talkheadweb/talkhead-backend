@@ -14,9 +14,19 @@
 
 export const QueueJobType = {
   GENERATION: "generation",
-  // Add new job types here:
-  // TRANSCRIPTION: "transcription",
-  // SUMMARY      : "summary",
+  CLEANUP   : "cleanup",
 } as const;
 
 export type TQueueJobType = typeof QueueJobType[keyof typeof QueueJobType];
+
+// ── Persistent job status (stored in MongoDB) ─────────────────────────────
+export const QueueJobStatus = {
+  PENDING   : "pending",
+  PROCESSING: "processing",
+  COMPLETED : "completed",
+  FAILED    : "failed",
+  CANCELLED : "cancelled",
+} as const;
+
+export type TQueueJobStatus = typeof QueueJobStatus[keyof typeof QueueJobStatus];
+export const QueueJobStatusValues = Object.values(QueueJobStatus) as [TQueueJobStatus, ...TQueueJobStatus[]];

@@ -16,10 +16,16 @@
     8.  Uncomment the GitHub section below
 */
 
+import validateRequest from "@/Middlewares/validateRequest";
+import { AuthValidation } from "../validation";
 import { Router } from "express";
 import { SocialAuthController } from "./controller";
 
 const socialRouter = Router();
+
+// ── Claim (shared — provider-agnostic) ───────────────────────────────────────
+socialRouter
+  .post("/claim", validateRequest(AuthValidation.claimSocialCodeZodSchema), SocialAuthController.claimSocialCode);
 
 // ── Google ────────────────────────────────────────────────────────────────────
 socialRouter

@@ -17,6 +17,8 @@ import { socialAuthPaths } from "@/App/Auth/social/social.swagger";
 import { adminPaths      } from "@/App/Admin/admin.swagger";
 import { queuePaths      } from "@/App/Queue/queue.swagger";
 import { generationPaths } from "@/App/Core/Generation/generation.swagger";
+import { avatarPaths      } from "@/App/Avatar/avatar.swagger";
+import { filePaths        } from "@/App/File/file.swagger";
 
 // ── Reusable schema components ─────────────────────────────────────────────
 const components = {
@@ -39,7 +41,8 @@ const components = {
         isVerified    : { type: "boolean", example: true },
         isActive      : { type: "boolean", example: true },
         googleId      : { type: "string",  nullable: true, example: null },
-        profilePicture: { type: "string",  nullable: true, example: "https://cdn.example.com/avatars/file.webp" },
+        profilePictureKey: { type: "string", nullable: true, example: "avatars/550e8400.webp", description: "Raw R2 file key or external https:// URL stored in DB" },
+        profilePictureUrl: { type: "string", nullable: true, example: "https://r2.example.com/avatars/550e8400.webp?X-Amz-Signature=...", description: "Presigned URL computed at response time — use this for display" },
         createdAt     : { type: "string", format: "date-time" },
         updatedAt     : { type: "string", format: "date-time" },
       },
@@ -101,6 +104,8 @@ export const swaggerSpec = {
     { name: "Admin",       description: "Admin-only user management" },
     { name: "Queue",       description: "Queue job management — API key protected. Used by external services to create and manage queue jobs." },
     { name: "Generation",  description: "AI generation jobs — create, track, and manage audio/video generation requests." },
+    { name: "Avatar",      description: "Avatar image management — upload and manage AI avatar images stored in Cloudflare R2." },
+    { name: "File",        description: "File record management — browse, inspect, and delete tracked file uploads." },
     // Add a tag here for each new module
   ],
   components,
@@ -110,6 +115,8 @@ export const swaggerSpec = {
     ...adminPaths,
     ...queuePaths,
     ...generationPaths,
+    ...avatarPaths,
+    ...filePaths,
     // ...featurePaths,  ← spread new module paths here
   },
 };

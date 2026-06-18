@@ -4,43 +4,66 @@ import { QueueJobType } from "@/Config/queue/const";
 import { calculatePagination, manageSorting, MongoQueryHelper } from "@/Utils/helper/queryOptimize";
 import CustomError from "@/Utils/errors/customError.class";
 import { LogService } from "@/Config/logger/utils";
+import { deleteFromR2 } from "@/Utils/file/upload";
+import { FileService } from "@/App/File/service";
+import { getIO } from "@/Config/socket";
+import { SocketEvent } from "@/Config/socket/events";
+import type { TGenerationUpdatePayload } from "@/Config/socket/events";
+import FileRecordModel from "@/App/File/model";
 import GenerationModel from "./model";
 import { GenerationStatus } from "./const";
-import type { IGeneration, TCreateGenerationBody, TListGenerationsPayload } from "./types";
+import type { IGeneration, TCallbackBody, TCreateGenerationBody, TListGenerationsPayload } from "./types";
 import { GenerationFilterKeys as FilterKeys, GenerationSearchKeys as SearchKeys } from "./types";
 
+type TFileKeys = {
+  refImageKey?: string;
+  audioKey?   : string;
+  mode?       : string;
+};
+
 // ── Create ─────────────────────────────────────────────────────────────────
-const create = async (userId: string, body: TCreateGenerationBody) => {
-  // 1. Create a placeholder record so we have a recordId for BullMQ
+// keys = pre-generated R2 keys from the controller (files not yet uploaded).
+// The controller uploads files to R2 AFTER this function returns successfully.
+// If enqueue fails the DB record is rolled back here — no file cleanup needed
+// because files are uploaded only after this returns.
+const create = async (userId: string, body: TCreateGenerationBody, keys: TFileKeys) => {
+  const avatarImageKey   = keys.refImageKey ?? body.avatarImageKey!;
+  const inputAudioKey = keys.audioKey;
+
   const doc = await GenerationModel.create({
-    userId    : new Types.ObjectId(userId),
-    bullJobId : "pending",           // updated after job is queued
-    status    : GenerationStatus.PENDING,
-    inputType : body.inputType,
-    outputType: body.outputType,
-    inputText        : body.inputText,
-    referenceImageUrl: body.referenceImageUrl,
+    userId      : new Types.ObjectId(userId),
+    status      : GenerationStatus.PENDING,
+    inputType   : body.inputType,
+    voiceId     : body.voiceId,
+    avatarImageKey,
+    inputText   : body.inputText,
+    inputAudioKey,
   });
 
-  // 2. Enqueue — type is the typed discriminant, payload carries feature-specific data
-  const job = await QueueUtil.enqueue(
-    String(doc._id),
-    QueueJobType.GENERATION,
-    {
-      userId,
-      inputType        : body.inputType,
-      outputType       : body.outputType,
-      inputText        : body.inputText,
-      referenceImageUrl: body.referenceImageUrl,
-    },
-  );
+  try {
+    const { queueJobId } = await QueueUtil.enqueue(
+      String(doc._id),
+      QueueJobType.GENERATION,
+      {
+        userId,
+        voiceId     : body.voiceId,
+        inputType   : body.inputType,
+        avatarImageKey,
+        inputText   : body.inputText,
+        inputAudioKey,
+        ...(keys.mode ? { mode: keys.mode } : {}),
+      },
+    );
+    // Store the QueueJob reference on the generation doc for easy cross-lookup
+    await GenerationModel.findByIdAndUpdate(doc._id, { queueJobId });
+    doc.queueJobId = queueJobId;
+  } catch (err) {
+    await GenerationModel.findByIdAndDelete(doc._id);
+    throw err;
+  }
 
-  // 3. Persist the real BullMQ job ID
-  doc.bullJobId = job.id as string;
-  await doc.save();
-
-  LogService.APPLICATION.info("Generation job queued", { recordId: doc._id, bullJobId: job.id });
-  return doc;
+  LogService.APPLICATION.info("Generation job queued", { recordId: doc._id });
+  return doc.toObject();
 };
 
 // ── List (paginated, filtered) ─────────────────────────────────────────────
@@ -69,6 +92,12 @@ const list = async (query: TListGenerationsPayload) => {
 
   if (filterFields["userId"] && Types.ObjectId.isValid(filterFields["userId"])) {
     conditions.push({ userId: new Types.ObjectId(filterFields["userId"]) });
+  }
+
+  const dateFrom = filterFields["dateFrom"];
+  const dateTo   = filterFields["dateTo"];
+  if (dateFrom || dateTo) {
+    conditions.push(MongoQueryHelper("DateRange", "createdAt", { min: dateFrom, max: dateTo }));
   }
 
   const mongoQuery = conditions.length ? { $and: conditions } : {};
@@ -101,7 +130,7 @@ const getOne = async (id: string, requestingUserId: string, isAdmin: boolean) =>
 // ── Update (admin patch) ───────────────────────────────────────────────────
 const update = async (
   id  : string,
-  data: Partial<Pick<IGeneration, "status" | "audioUrl" | "videoUrl" | "ysid" | "errorMessage" | "completedAt">>,
+  data: Partial<Pick<IGeneration, "status" | "outputFileKey" | "errorMessage" | "completedAt">>,
 ) => {
   const doc = await GenerationModel.findByIdAndUpdate(
     id,
@@ -125,7 +154,7 @@ const cancel = async (id: string, requestingUserId: string, isAdmin: boolean) =>
     throw new CustomError(`Cannot cancel a job that is already ${doc.status}.`, 409);
   }
 
-  await QueueUtil.remove(doc.bullJobId);
+  await QueueUtil.remove(String(doc._id));
 
   doc.status = GenerationStatus.CANCELLED;
   await doc.save();
@@ -133,10 +162,55 @@ const cancel = async (id: string, requestingUserId: string, isAdmin: boolean) =>
   return doc;
 };
 
-// ── Delete ─────────────────────────────────────────────────────────────────
-const remove = async (id: string) => {
-  const doc = await GenerationModel.findByIdAndDelete(id).lean();
+// ── Label / tag (owner only) ───────────────────────────────────────────────
+const label = async (
+  id                : string,
+  requestingUserId  : string,
+  data              : { label?: string; tags?: string[] },
+) => {
+  const doc = await GenerationModel.findById(id).lean();
   if (!doc) throw new CustomError("Generation record not found.", 404);
+  if (String(doc.userId) !== requestingUserId) throw new CustomError("Access denied.", 403);
+
+  const updated = await GenerationModel.findByIdAndUpdate(
+    id,
+    { $set: data },
+    { new: true, lean: true },
+  );
+  return updated!;
+};
+
+// ── Delete (owner or admin — cleans up R2 files and FileRecords) ───────────
+const remove = async (id: string, requestingUserId: string, isAdmin: boolean) => {
+  const doc = await GenerationModel.findById(id).lean();
+  if (!doc) throw new CustomError("Generation record not found.", 404);
+
+  if (!isAdmin && String(doc.userId) !== requestingUserId) {
+    throw new CustomError("Access denied.", 403);
+  }
+
+  // Collect R2 keys and FileRecord refs — same ownership rules as cleanup job:
+  // avatar/audio R2 only deleted when generation owns the file (ref is set).
+  const r2Keys    : string[]                  = [];
+  const fileRefIds: Types.ObjectId[]          = [];
+
+  if (doc.avatarImageFile) {
+    r2Keys.push(doc.avatarImageKey);
+    fileRefIds.push(doc.avatarImageFile as Types.ObjectId);
+  }
+  if (doc.inputAudioFile) {
+    if (doc.inputAudioKey) r2Keys.push(doc.inputAudioKey);
+    fileRefIds.push(doc.inputAudioFile as Types.ObjectId);
+  }
+  if (doc.outputFileKey) r2Keys.push(doc.outputFileKey);
+  if (doc.outputFile)    fileRefIds.push(doc.outputFile as Types.ObjectId);
+
+  await Promise.all(r2Keys.map(k => deleteFromR2(k).catch(() => {})));
+  if (fileRefIds.length) {
+    await FileRecordModel.deleteMany({ _id: { $in: fileRefIds } });
+  }
+  await GenerationModel.findByIdAndDelete(id);
+
   return doc;
 };
 
@@ -150,22 +224,34 @@ const markProcessing = async (recordId: string): Promise<void> => {
   });
 };
 
-type TJobResult = {
-  audioUrl?: string;
-  videoUrl?: string;
-  ysid?    : string;
+const markCompleted = async (recordId: string, outputFileKey?: string): Promise<void> => {
+  await GenerationModel.findByIdAndUpdate(
+    recordId,
+    { $set: { status: GenerationStatus.COMPLETED, completedAt: new Date(), ...(outputFileKey ? { outputFileKey } : {}) } },
+  );
+
+  // Link the FileRecord that was created when the external API uploaded via
+  // /files/external-upload. Fire-and-forget — non-critical.
+  if (outputFileKey) {
+    FileService.findByFileKey(outputFileKey).then(record => {
+      if (record?._id) {
+        GenerationModel.findByIdAndUpdate(recordId, { $set: { outputFile: record._id } }).catch(() => {});
+      }
+    }).catch(() => {});
+  }
 };
 
-const markCompleted = async (recordId: string, result: TJobResult = {}): Promise<void> => {
-  await GenerationModel.findByIdAndUpdate(recordId, {
-    $set: {
-      status     : GenerationStatus.COMPLETED,
-      completedAt: new Date(),
-      ...(result.audioUrl ? { audioUrl: result.audioUrl } : {}),
-      ...(result.videoUrl ? { videoUrl: result.videoUrl } : {}),
-      ...(result.ysid     ? { ysid    : result.ysid     } : {}),
-    },
-  });
+// ── Set file refs (called after upload, fire-and-forget) ──────────────────
+const setFileRefs = async (
+  recordId    : string,
+  refs: { avatarImageFile?: string; inputAudioFile?: string },
+): Promise<void> => {
+  const updates: Record<string, unknown> = {};
+  if (refs.avatarImageFile) updates.avatarImageFile = refs.avatarImageFile;
+  if (refs.inputAudioFile)  updates.inputAudioFile  = refs.inputAudioFile;
+  if (Object.keys(updates).length) {
+    await GenerationModel.findByIdAndUpdate(recordId, { $set: updates });
+  }
 };
 
 const markFailed = async (recordId: string, errorMessage: string): Promise<void> => {
@@ -174,14 +260,65 @@ const markFailed = async (recordId: string, errorMessage: string): Promise<void>
   });
 };
 
+// ── Socket emit helper ─────────────────────────────────────────────────────
+// Fire-and-forget — a socket failure must never crash the callback handler.
+const emitToUser = (userId: string, payload: TGenerationUpdatePayload): void => {
+  try {
+    getIO().to(`user:${userId}`).emit(SocketEvent.GENERATION_UPDATE, payload);
+  } catch {
+    LogService.APPLICATION.warn("Socket emit failed — user may be offline", {
+      userId,
+      generationId: payload.generationId,
+    });
+  }
+};
+
+// ── External API callback ──────────────────────────────────────────────────
+const handleCallback = async (id: string, body: TCallbackBody): Promise<void> => {
+  const doc = await GenerationModel.findById(id).lean();
+  if (!doc) throw new CustomError("Generation record not found.", 404);
+
+  const userId = String(doc.userId);
+
+  if (body.success) {
+    await markCompleted(id, body.outputFileKey);
+    LogService.APPLICATION.info("Generation completed via callback", { recordId: id });
+
+    // Resolve presigned URL so the frontend can use it immediately
+    const outputUrl = body.outputFileKey
+      ? await FileService.getUrlByKey(body.outputFileKey).catch(() => undefined)
+      : undefined;
+
+    emitToUser(userId, {
+      generationId : id,
+      status       : "completed",
+      outputFileKey: body.outputFileKey,
+      outputUrl,
+    });
+  } else {
+    const errorMessage = body.message ?? "External API processing did not succeed.";
+    await markFailed(id, errorMessage);
+    LogService.APPLICATION.warn("Generation failed via callback", { recordId: id });
+
+    emitToUser(userId, {
+      generationId: id,
+      status      : "failed",
+      errorMessage,
+    });
+  }
+};
+
 export const GenerationService = {
   create,
   list,
   getOne,
   update,
+  label,
   cancel,
   remove,
-  // Worker callbacks — not for HTTP controllers
+  handleCallback,
+  setFileRefs,
+  // Worker callbacks — called exclusively by the queue processor
   markProcessing,
   markCompleted,
   markFailed,

@@ -26,21 +26,16 @@ export const GenerationStatusValues = Object.values(GenerationStatus) as [TGener
 export const GenerationInputType = {
   TEXT : "text",
   AUDIO: "audio",
-  IMAGE: "image",
-  VIDEO: "video",
 } as const;
 
 export type TGenerationInputType = typeof GenerationInputType[keyof typeof GenerationInputType];
 export const GenerationInputTypeValues = Object.values(GenerationInputType) as [TGenerationInputType, ...TGenerationInputType[]];
 
-// ── Output type ────────────────────────────────────────────────────────────
-export const GenerationOutputType = {
-  AUDIO: "audio",
-  VIDEO: "video",
-} as const;
-
-export type TGenerationOutputType = typeof GenerationOutputType[keyof typeof GenerationOutputType];
-export const GenerationOutputTypeValues = Object.values(GenerationOutputType) as [TGenerationOutputType, ...TGenerationOutputType[]];
+// ── Test mode ──────────────────────────────────────────────────────────────
+// When mode=test is passed at generation creation, the queue processor skips
+// the external API call and immediately marks the job completed with this key.
+export const GENERATION_TEST_OUTPUT_KEY =
+  "generations/6a2376982deea03e9de2aa8e/c0222feb-fb21-4b3c-a108-94a856ea4f88.mp4" as const;
 
 // ── Redis / cache prefixes (if needed in future) ───────────────────────────
 export const GENERATION_CACHE_PREFIX = "generation" as const;

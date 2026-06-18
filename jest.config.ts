@@ -14,6 +14,9 @@ const config: Config = {
     "^@/Config/redis/connection$": "<rootDir>/__tests__/_mocks/redisConnection.ts",
     "^@/Config/logger/utils$"    : "<rootDir>/__tests__/_mocks/loggerUtils.ts",
     "^@/Config/queue$"           : "<rootDir>/__tests__/_mocks/queueConfig.ts",
+    "^@/App/Queue/model$"        : "<rootDir>/__tests__/_mocks/appQueueModel.ts",
+    "^@/App/Avatar/model$"       : "<rootDir>/__tests__/_mocks/appAvatarModel.ts",
+    "^@/App/File/model$"         : "<rootDir>/__tests__/_mocks/appFileModel.ts",
     "^@/(.*)$"                   : "<rootDir>/src/$1",
   },
 

@@ -6,9 +6,10 @@ import UserModel from "@/App/Auth/model";
 jest.mock("@/App/Auth/model");
 jest.mock("@/App/Auth/redisService", () => ({
   AuthRedisService: {
-    refreshToken: { set: jest.fn(), get: jest.fn(), del: jest.fn() },
-    verifyToken : { set: jest.fn(), get: jest.fn(), del: jest.fn() },
-    resetToken  : { set: jest.fn(), get: jest.fn(), del: jest.fn() },
+    refreshToken     : { set: jest.fn(), get: jest.fn(), del: jest.fn() },
+    verifyToken      : { set: jest.fn(), get: jest.fn(), del: jest.fn() },
+    resetToken       : { set: jest.fn(), get: jest.fn(), del: jest.fn() },
+    presignedUrlCache: { get: jest.fn().mockResolvedValue(null), set: jest.fn(), del: jest.fn() },
   },
 }));
 
@@ -35,8 +36,8 @@ const authToken = jwt.sign(
 
 const makeDoc = (overrides = {}) => ({
   _id: "user123", name: "Test User", email: "test@example.com",
-  role: "user", isVerified: true, profilePicture: null,
-  toObject: () => ({ _id: "user123", name: "Test User", email: "test@example.com", role: "user", isVerified: true, profilePicture: null, ...overrides }),
+  role: "user", isVerified: true, profilePictureKey: null,
+  toObject: () => ({ _id: "user123", name: "Test User", email: "test@example.com", role: "user", isVerified: true, profilePictureKey: null, ...overrides }),
   ...overrides,
 });
 
@@ -62,9 +63,9 @@ describe("PATCH /auth/profile", () => {
   });
 
   // ── Picture upload (multipart) ─────────────────────────────────────────
-  it("200 — uploads profile picture via multipart and stores R2 URL", async () => {
+  it("200 — uploads profile picture via multipart and stores R2 file key", async () => {
     MockUser.findByIdAndUpdate = jest.fn().mockResolvedValue(
-      makeDoc({ profilePicture: "https://cdn.example.com/avatars/test-uuid.webp" }),
+      makeDoc({ profilePictureKey: "avatars/test-uuid.webp" }),
     );
 
     const res = await request(app)

@@ -18,6 +18,18 @@ The refresh token is stored in Redis on login and deleted on logout/password-cha
 
 ---
 
+## Redis key reference
+
+| Key pattern | TTL | Purpose |
+|---|---|---|
+| `auth:refresh:<userId>` | 7 days | Refresh token — deleted on logout/password change |
+| `auth:verify:<userId>` | 24 hours | Email verification token (single-use) |
+| `auth:reset:<userId>` | 1 hour | Password reset token (single-use) |
+| `auth:social-code:<uuid>` | 2 minutes | One-time OAuth claim code (single-use) |
+| `auth:presigned:<fileKey>` | 10 minutes | Cached R2 presigned URL for profile pictures |
+
+---
+
 ## 1. Email / password flow
 
 ### Register
@@ -69,8 +81,8 @@ Store refresh token in Redis (auth:refresh:<userId>, 7 day TTL)
        ▼
 200 OK
   body: { user, accessToken }                    ← accessToken also in body for mobile clients
-  Set-Cookie: access_token=<token>;  HttpOnly; SameSite=lax; Max-Age=900
-  Set-Cookie: refresh_token=<token>; HttpOnly; SameSite=lax; Max-Age=604800
+  Set-Cookie: access_token=<token>;  HttpOnly; SameSite=none; Secure; Domain=.talkhead.ai; Max-Age=900
+  Set-Cookie: refresh_token=<token>; HttpOnly; SameSite=none; Secure; Domain=.talkhead.ai; Max-Age=604800
 ```
 
 ### Logout
@@ -137,6 +149,12 @@ Issue new access_token cookie + proceed with original request
 Request succeeds — user never sees a 401
 ```
 
+> **Proxy required for web:** The new access token cookie is set by the backend in the
+> API response. If the frontend uses a proper reverse-proxy route handler (see
+> `docs/guides/frontend-proxy-setup.md`), the `Set-Cookie` header is forwarded to the
+> browser and the cookie updates transparently. A plain URL rewrite (e.g. Next.js
+> `rewrites()`) drops response headers and will swallow the new cookie.
+
 ### Forgot password
 
 ```
@@ -194,63 +212,130 @@ Mark user isVerified = true + delete verify token
 
 ## 2. Google OAuth flow
 
-```
-STEP 1 — Client redirects browser to backend
-  GET /api/v1/auth/social/google
+The OAuth flow uses a **one-time claim code** to transfer the session from the backend
+to the frontend. This solves the cross-domain cookie problem: cookies set by
+`api.talkhead.ai` cannot be read by `app.talkhead.ai` or `localhost:3000`, but a
+short-lived Redis code can be exchanged via a direct API call.
 
-STEP 2 — Backend redirects browser to Google consent screen
-  → https://accounts.google.com/o/oauth2/auth?client_id=...&redirect_uri=...
+It also supports **dynamic redirect origins**: the frontend passes its own
+`window.location.origin` when starting the flow, so the same backend works for
+`localhost:3000` in development and `https://demo.talkhead.ai` in production
+without any configuration change.
+
+```
+STEP 1 — Frontend navigates browser to backend, passing its own origin
+  GET /api/v1/auth/social/google?origin=https://app.example.com
+
+STEP 2 — Backend validates origin against CORS_ALLOWED_ORIGINS whitelist,
+          encodes it in the OAuth state parameter, redirects to Google
+  → https://accounts.google.com/o/oauth2/auth?...&state=https://app.example.com
 
 STEP 3 — User approves on Google
 
-STEP 4 — Google redirects browser back to backend
-  GET /api/v1/auth/social/google/callback?code=xyz123
+STEP 4 — Google redirects browser back to backend (state is returned unchanged)
+  GET /api/v1/auth/social/google/callback?code=xyz&state=https://app.example.com
 
-STEP 5 — Backend exchanges code for Google profile (server-to-server, invisible to user)
+STEP 5 — Backend re-validates origin from state (open-redirect guard)
 
-STEP 6 — Backend runs find-or-create logic:
-  a. Find user by googleId → returning user, skip to STEP 7
+STEP 6 — Backend exchanges code for Google profile (server-to-server)
+
+STEP 7 — Backend runs find-or-create logic:
+  a. Find user by googleId → returning user, skip to STEP 8
   b. Find user by email    → link googleId to existing account (account merging)
   c. Neither found         → create new user (isVerified = true, Google confirmed email)
 
-STEP 7 — Backend issues tokens (identical to normal login):
+STEP 8 — Backend issues tokens (identical to normal login):
   - Sign access token + refresh token
-  - Store refresh token in Redis
+  - Store refresh token in Redis (auth:refresh:<userId>)
 
-STEP 8 — Backend sets both httpOnly cookies + redirects browser to frontend
-  Set-Cookie: access_token=<token>;  HttpOnly
-  Set-Cookie: refresh_token=<token>; HttpOnly
-  302 → FRONTEND_SOCIAL_CALLBACK_URL?token=<accessToken>
+STEP 9 — Backend creates a one-time claim code in Redis
+  - code = UUID → stored as auth:social-code:<uuid>
+  - value = { accessToken, refreshToken }
+  - TTL = 2 minutes, single-use
 
-STEP 9 — Frontend page at /auth/callback:
-  // Web: cookies are already set — just redirect to dashboard
-  // Mobile: const token = new URLSearchParams(location.search).get("token");
-  redirect("/dashboard");
+STEP 10 — Backend redirects browser to the frontend callback URL
+  302 → <origin>/auth/callback?code=<uuid>
+
+STEP 11 — Frontend /auth/callback route handler (server-side, e.g. Next.js Route Handler):
+  POST /api/v1/auth/social/claim  { code: "<uuid>" }
+       │
+       ▼  (server-to-server call — bypasses browser cookie restrictions)
+  Backend:
+    - Looks up auth:social-code:<uuid> in Redis
+    - Deletes it immediately (single-use)
+    - Sets access_token + refresh_token as httpOnly cookies in the response
+       │
+       ▼
+  Route handler forwards the Set-Cookie headers in its own redirect response
+  → 302 /profile   (with Set-Cookie headers bound to the frontend domain)
+
+STEP 12 — Browser stores cookies for the frontend domain
+          Session established — identical to email/password login from here
 ```
 
-### Side-by-side comparison
+### POST /auth/social/claim — quick reference
+
+This is the only endpoint in the social flow that a frontend developer needs to call
+manually (all other steps are browser redirects handled automatically).
 
 ```
-Email/password login                    Google OAuth login
-────────────────────────────────────    ────────────────────────────────────
-POST /api/v1/auth/login                 Browser GET /api/v1/auth/social/google
-  ↓                                       ↓ (redirect chain via Google)
-Backend verifies password               Backend verifies Google profile
-  ↓                                       ↓
-Issues access + refresh tokens          Issues access + refresh tokens (same)
-  ↓                                       ↓
-JSON: { user, accessToken }             302 → /auth/callback?token=<accessToken>
-Set-Cookie: access_token                Set-Cookie: access_token
-Set-Cookie: refresh_token               Set-Cookie: refresh_token
-  ↓                                       ↓
-Web: cookies set — done                 Web: cookies set — just redirect
-Mobile: store accessToken               Mobile: read ?token= → store accessToken
-  ↓                                       ↓
-  ────── IDENTICAL FROM HERE ──────────────────────────────────────────────
-Web:    browser sends cookies automatically on every request
-Mobile: Bearer <accessToken> header on every request
-GET /api/v1/auth/me → full user profile
+POST /api/v1/auth/social/claim
+Content-Type: application/json
+
+{ "code": "550e8400-e29b-41d4-a716-446655440000" }
 ```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `code` | UUID string | ✅ | The value from the `?code=` query param in the `/auth/callback` redirect |
+
+**Response 200** — sets two httpOnly cookies, identical to a regular login:
+
+```
+Set-Cookie: access_token=<jwt>;  HttpOnly; SameSite=none; Secure; Domain=.talkhead.ai; Max-Age=900
+Set-Cookie: refresh_token=<jwt>; HttpOnly; SameSite=none; Secure; Domain=.talkhead.ai; Max-Age=604800
+
+{ "success": true, "message": "Social login successful." }
+```
+
+**Response 401** — code expired (> 2 min) or already used:
+```json
+{ "success": false, "message": "Invalid or expired auth code." }
+```
+
+**Important:** this call must be made **server-side** (e.g. Next.js Route Handler), not
+from the browser directly. The route handler then forwards the `Set-Cookie` headers in
+its own redirect response so the browser binds the cookies to the frontend domain, not
+the backend API domain.
+
+---
+
+### Why the claim code approach
+
+| Problem | Solution |
+|---|---|
+| Backend cookies bound to `api.talkhead.ai` — not readable by frontend | Code exchange via direct fetch (not cross-domain cookie) |
+| Access token in `?token=` URL param — visible in browser history/logs | Opaque UUID code — tokens never appear in URLs |
+| Single backend deployed, multiple frontend origins (dev + prod) | Origin passed as `?origin=` and encoded in OAuth state |
+| Code could be stolen and replayed | Single-use (deleted on first claim) + 2-min TTL |
+
+### Dynamic redirect origin
+
+The same deployed backend serves multiple frontend environments:
+
+```
+Local dev:   GET /api/v1/auth/social/google?origin=http://localhost:3000
+Production:  GET /api/v1/auth/social/google?origin=https://app.example.com
+```
+
+The origin is validated against `CORS_ALLOWED_ORIGINS` before use. Unrecognised or
+missing origins fall back to `FRONTEND_SOCIAL_CALLBACK_URL` env var.
+The validated origin is re-checked in the callback — it is never used as an open redirect.
+
+**Frontend implementation note:** the `?origin=` value must be read from
+`window.location.origin` at click time (not at render/SSR time) so it always reflects
+the actual domain the user is on. Reading it during server-side rendering can produce
+an empty string, causing the backend to ignore it and fall back to the env var.
 
 ### Account merging
 
@@ -262,9 +347,75 @@ clicks "Sign in with Google" using the same Gmail address:
 - Password is **not removed** — they can continue to sign in both ways
 - `isVerified` is set to `true` if it wasn't already
 
+### Profile picture from OAuth
+
+The Google profile picture URL is stored directly in `profilePictureKey` when the account
+is created. On every `GET /auth/me` (and `login` / `updateProfile`), `resolveProfilePictureUrl` resolves it and the result is returned as `profilePictureUrl` in the response — `profilePictureKey` always keeps the raw stored value:
+
+| Stored value | Action |
+|---|---|
+| Full `https://` URL (Google, custom R2 domain) | Returned as-is |
+| Bare R2 file key (e.g. `avatars/uuid.webp`) | Presigned URL generated (15 min validity), cached in Redis for 10 min |
+| `null` / empty | `null` returned — client shows initials fallback |
+
 ---
 
-## 3. Protected routes
+## 3. Shared token resolution — `resolveSession()` and `resolveSocketSession()`
+
+HTTP and Socket.io use **different** resolution functions because only HTTP can issue new cookies.
+
+### 3a. HTTP — `resolveSession()`
+
+Used by the `authenticate` middleware for all REST endpoints.
+
+```ts
+// src/App/Auth/utils.ts
+resolveSession(accessToken?, refreshToken?) → TResolvedSession
+```
+
+Resolution order:
+1. **Access token valid** → return immediately (no Redis check needed)
+2. **Access token invalid or expired** (any error) → fall through to refresh token
+3. **Refresh token** → verify JWT + Redis revocation check (`auth:refresh:<userId>`) → return session
+4. **No valid token** → throw `"Session expired. Please log in again."`
+
+The `authenticate` HTTP middleware also writes a new `Set-Cookie: access_token` when the session was refreshed (`session.refreshed === true`), so the browser gets an updated token transparently.
+
+### 3b. Socket.io — `resolveSocketSession()`
+
+Used by `socketAuthMiddleware` in `src/Config/socket/middleware.ts`. Skips the Redis revocation check.
+
+```ts
+// src/App/Auth/utils.ts
+resolveSocketSession(accessToken?, refreshToken?) → TResolvedSession
+```
+
+Resolution order:
+1. **Access token valid** → return immediately
+2. **Access token invalid or expired** → fall through to refresh token
+3. **Refresh token** → verify JWT signature + expiry **only** (no Redis check) → return session
+4. **No valid token** → throw `"Authentication required."`
+
+**Why no Redis check for sockets?**
+
+The Redis check exists to enforce logout revocation — after `POST /auth/logout`, the refresh token is deleted from Redis so it can't be used again. However, requiring this check on the socket transport causes false rejections in legitimate scenarios:
+
+- Redis is momentarily unreachable (restart, network blip)
+- A token rotation race: the access token expired, the frontend is mid-refresh via HTTP, and the socket reconnects in the gap before the new token is in Redis
+- Redis state was cleared during a deploy
+
+The socket transport has no mechanism to issue a new cookie mid-connection, so it cannot recover from these failures the way HTTP can. The 7-day JWT expiry on the refresh token provides the time-bound guarantee.
+
+**If hard revocation is needed** (e.g. admin kick, forced logout of a specific user), use:
+```ts
+io.in(`user:${userId}`).disconnectSockets();
+```
+
+The socket middleware does not issue a new cookie — the socket continues with refresh-token identity until the next HTTP request refreshes the access token.
+
+---
+
+## 4. Protected routes
 
 ```ts
 // Require authentication only
@@ -275,10 +426,9 @@ router.delete("/users/:id", authenticate, AccessLimit(["admin"]), controller)
 ```
 
 `authenticate` reads the access token from the `access_token` cookie first, falling
-back to the `Authorization: Bearer <token>` header for mobile clients. It verifies
-the JWT and sets `req.user = { uid, email, role }`. If the access token is expired
-but a valid `refresh_token` cookie is present, it silently issues a new access token
-cookie and proceeds — the request never fails.
+back to the `Authorization: Bearer <token>` header for mobile clients. It delegates to
+`resolveSession()`, sets `req.user = { uid, email, role }`, and issues a refreshed
+access token cookie when the old one was expired.
 
 `AccessLimit(roles)` checks `req.user.role` against the allowed list and
 returns **403** (not 401) if the role doesn't match.
@@ -293,9 +443,11 @@ returns **403** (not 401) if the role doesn't match.
 4. Add `githubId?: string` to `src/App/Auth/model.ts` + `types.ts`
 5. Create `src/App/Auth/social/strategies/github.strategy.ts`
    - Import + register in `src/app.ts` (one side-effect import line)
-6. Add `githubAuth` + `githubCallback` to `src/App/Auth/social/controller.ts`
+6. Copy `googleAuth` + `googleCallback` pattern in `src/App/Auth/social/controller.ts`
+   — the `validateOrigin` / `redirectToFrontend` helpers are shared, no duplication
 7. Add `"github"` to the `provider` union in `src/App/Auth/social/types.ts`
 8. Uncomment the GitHub section in `src/App/Auth/social/routes.ts`
 
 `SocialAuthService.socialLogin` requires **zero changes** — the `provider` field
 drives the dynamic field name (`githubId`, `googleId`, etc.) automatically.
+The `POST /auth/social/claim` endpoint is provider-agnostic and works for all.

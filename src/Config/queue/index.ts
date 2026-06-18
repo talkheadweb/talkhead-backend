@@ -28,7 +28,9 @@ import { Job, Queue, Worker, WorkerOptions, type ConnectionOptions } from "bullm
 import config from "@/Config";
 import { LogService } from "@/Config/logger/utils";
 import type { TQueueJobType } from "./const";
-import type { TEnqueueOptions, TProcessor, TQueueJobData } from "./types";
+import { QueueJobStatus } from "./const";
+import QueueJobModel from "@/App/Queue/model";
+import type { TEnqueueOptions, TEnqueueResult, TProcessor, TQueueJobData } from "./types";
 
 const log = LogService.APPLICATION;
 
@@ -45,8 +47,8 @@ export const bullQueue = new Queue(config.queue.name, {
   defaultJobOptions: {
     attempts : 3,
     backoff  : { type: "exponential", delay: 2000 },
-    removeOnComplete: { count: 100 },
-    removeOnFail    : { count: 50  },
+    removeOnComplete: { count: 5 },
+    removeOnFail    : { count: 5 },
   },
 });
 
@@ -87,12 +89,46 @@ export class BullWorker<T = unknown> {
       },
     );
 
-    this.worker.on("completed", (job) =>
-      log.info("BullMQ: job completed", { jobId: job.id }),
-    );
-    this.worker.on("failed", (job, err) =>
-      log.error("BullMQ: job failed", { jobId: job?.id, message: err.message }),
-    );
+    const getRecordId = (data: T): string | undefined =>
+      (data as unknown as TQueueJobData).recordId;
+
+    this.worker.on("active", (job) => {
+      log.info("BullMQ: job active", { jobId: job.id });
+      const recordId = getRecordId(job.data);
+      if (!recordId) return;
+      QueueJobModel.findOneAndUpdate(
+        { recordId },
+        { $set: { status: QueueJobStatus.PROCESSING, startedAt: new Date() } },
+      ).catch((err) => log.error("QueueJob active update failed", { message: err.message }));
+    });
+
+    this.worker.on("completed", (job) => {
+      log.info("BullMQ: job completed", { jobId: job.id });
+      const recordId = getRecordId(job.data);
+      if (!recordId) return;
+      QueueJobModel.findOneAndUpdate(
+        { recordId },
+        { $set: { status: QueueJobStatus.COMPLETED, finishedAt: new Date() } },
+      ).catch((err) => log.error("QueueJob completed update failed", { message: err.message }));
+    });
+
+    this.worker.on("failed", (job, err) => {
+      log.error("BullMQ: job failed", { jobId: job?.id, message: err.message });
+      const recordId = job ? getRecordId(job.data) : undefined;
+      if (!recordId) return;
+      QueueJobModel.findOneAndUpdate(
+        { recordId },
+        {
+          $set: {
+            status      : QueueJobStatus.FAILED,
+            failedReason: err.message,
+            attempts    : job!.attemptsMade,
+            finishedAt  : new Date(),
+          },
+        },
+      ).catch((e) => log.error("QueueJob failed update failed", { message: e.message }));
+    });
+
     this.worker.on("error", (err) =>
       log.error("BullMQ: worker error", { message: err.message }),
     );
@@ -112,21 +148,40 @@ export class BullWorker<T = unknown> {
  * Import bullQueue directly only if you need advanced BullMQ API (e.g. App/Queue service).
  */
 
-const enqueue = (
+// jobId is set to recordId so BullMQ uses our own ID — enables lookup by _id without
+// storing the BullMQ-generated ID anywhere.
+const enqueue = async (
   recordId: string,
   type    : TQueueJobType,
   payload : Record<string, unknown>,
   options : TEnqueueOptions = {},
-): Promise<Job<TQueueJobData>> =>
-  bullQueue.add(
+): Promise<TEnqueueResult> => {
+  // 1. Persist the job in MongoDB first — durable even if BullMQ/Redis is lost
+  const queueJob = await QueueJobModel.create({
+    recordId,
+    type,
+    payload,
+    status: QueueJobStatus.PENDING,
+  });
+
+  // 2. Add to BullMQ using recordId as the job ID for easy lookup
+  const bullJob = await bullQueue.add(
     recordId,
     { type, recordId, payload },
     {
+      jobId   : recordId,
       priority: options.priority,
       delay   : options.delay,
       attempts: options.attempts,
     },
   );
+
+  // 3. Store the BullMQ cache ID on the record (non-critical — fire-and-forget)
+  QueueJobModel.findByIdAndUpdate(queueJob._id, { bullJobId: bullJob.id })
+    .catch((err) => log.error("QueueJob bullJobId update failed", { message: err.message }));
+
+  return { queueJobId: queueJob._id };
+};
 
 const getJobState = async (bullJobId: string): Promise<string | null> => {
   const job = await bullQueue.getJob(bullJobId);

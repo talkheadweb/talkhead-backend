@@ -40,7 +40,7 @@ const socialLogin = async (payload: TSocialLoginInput): Promise<TLoginResponse> 
     if (user) {
       (user as any)[providerIdField] = providerId;
       user.isVerified = true;
-      if (picture && !user.profilePicture) user.profilePicture = picture;
+      if (picture && !user.profilePictureKey) user.profilePictureKey = picture;
       await user.save();
     } else {
       // 3. First time — create a brand-new account
@@ -49,7 +49,7 @@ const socialLogin = async (payload: TSocialLoginInput): Promise<TLoginResponse> 
         email,
         [providerIdField]: providerId,
         isVerified       : true,   // provider already confirmed the email
-        profilePicture   : picture ?? null,
+        profilePictureKey   : picture ?? null,
       });
     }
   }

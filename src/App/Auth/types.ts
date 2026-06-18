@@ -18,7 +18,7 @@ export interface IUser {
   role           : EUserRole;
   isVerified     : boolean;
   isActive       : boolean;         // false = suspended by admin
-  profilePicture : string | null;
+  profilePictureKey : string | null;  // R2 file key (uploaded) or external https:// URL (OAuth)
   createdAt      : Date;
   updatedAt      : Date;
 }
@@ -47,8 +47,12 @@ export type TUpdateProfileInput = {
   name?: string;
 };
 
-// Safe user shape — password never included
-export type TUserPublic = Omit<IUser, "password">;
+// Safe user shape — password never included.
+// profilePictureUrl is added at response time (presigned URL or external https://).
+// profilePictureKey always keeps the raw stored value (R2 key or external https://).
+export type TUserPublic = Omit<IUser, "password"> & {
+  profilePictureUrl?: string | null;
+};
 
 // ── Request body types (derived from Zod — single source of truth) ─────────
 export type TRegisterBody          = z.infer<typeof AuthValidation.registerZodSchema>["body"];
@@ -59,3 +63,4 @@ export type TVerifyEmailBody       = z.infer<typeof AuthValidation.verifyEmailZo
 export type TResendVerificationBody= z.infer<typeof AuthValidation.resendVerificationZodSchema>["body"];
 export type TUpdateProfileBody     = z.infer<typeof AuthValidation.updateProfileZodSchema>["body"];
 export type TChangePasswordBody    = z.infer<typeof AuthValidation.changePasswordZodSchema>["body"];
+export type TClaimSocialCodeBody   = z.infer<typeof AuthValidation.claimSocialCodeZodSchema>["body"];

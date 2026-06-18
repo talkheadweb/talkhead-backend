@@ -1,6 +1,7 @@
 import {
   bool,
   created,
+  dateRangeParams,
   enumOf,
   errors,
   jsonBody,
@@ -72,6 +73,7 @@ export const adminPaths = {
         { name: "role",       in: "query", schema: { type: "string",  enum: ["user", "admin"] },                             description: "Filter by role" },
         { name: "isVerified", in: "query", schema: { type: "string",  enum: ["true", "false"] },                             description: "Filter by email verification status" },
         { name: "isActive",   in: "query", schema: { type: "string",  enum: ["true", "false"] },                             description: "Filter by active (true) or suspended (false) status" },
+        ...dateRangeParams,
       ],
       responses: { ...userListResponse, ...errors(401, 403) },
     }),

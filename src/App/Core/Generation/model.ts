@@ -1,11 +1,5 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
-import {
-  GenerationStatus,
-  GenerationStatusValues,
-  GenerationInputType,
-  GenerationInputTypeValues,
-  GenerationOutputType,
-} from "./const";
+import { GenerationStatus, GenerationStatusValues, GenerationInputTypeValues } from "./const";
 import type { IGeneration } from "./types";
 
 export type TGenerationDocument = IGeneration & Document;
@@ -18,10 +12,9 @@ const GenerationSchema = new Schema<TGenerationDocument>(
       required: true,
       index   : true,
     },
-    bullJobId: {
-      type    : String,
-      required: true,
-      unique  : true,
+    queueJobId: {
+      type: Schema.Types.ObjectId,
+      ref : "QueueJob",     // populated on demand — not required (set after enqueue)
     },
     status: {
       type    : String,
@@ -32,35 +25,50 @@ const GenerationSchema = new Schema<TGenerationDocument>(
     },
     inputType: {
       type    : String,
-      enum    : Object.values(GenerationInputType),
+      enum    : GenerationInputTypeValues,
+      required: true,
+    },
+    voiceId: {
+      type    : String,
+      required: true,
+    },
+    avatarImageKey: {
+      type    : String,
       required: true,
     },
     inputText: {
       type: String,
     },
-    referenceImageUrl: {
+    inputAudioKey: {
       type: String,
     },
-    outputType: {
-      type    : String,
-      enum    : Object.values(GenerationOutputType),
-      required: true,
-    },
-    audioUrl: {
+    outputFileKey: {
       type: String,
-    },
-    videoUrl: {
-      type: String,
-    },
-    ysid: {
-      type : String,
-      index: true,
     },
     errorMessage: {
       type: String,
     },
     completedAt: {
       type: Date,
+    },
+    label: {
+      type: String,
+    },
+    tags: {
+      type   : [String],
+      default: [],
+    },
+    avatarImageFile: {
+      type: Schema.Types.ObjectId,
+      ref : "FileRecord",
+    },
+    inputAudioFile: {
+      type: Schema.Types.ObjectId,
+      ref : "FileRecord",
+    },
+    outputFile: {
+      type: Schema.Types.ObjectId,
+      ref : "FileRecord",
     },
   },
   {

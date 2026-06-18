@@ -17,11 +17,10 @@ const MockModel = GenerationModel as jest.Mocked<typeof GenerationModel>;
 const MockJwt   = JwtHelper       as jest.Mocked<typeof JwtHelper>;
 
 const makeDoc = (status: string = GenerationStatus.PENDING, userId = mockUserId) => ({
-  _id      : mockGenId,
+  _id   : mockGenId,
   userId,
-  bullJobId: "42",
   status,
-  save     : jest.fn().mockResolvedValue(undefined),
+  save  : jest.fn().mockResolvedValue(undefined),
 });
 
 describe("PATCH /generations/:id/cancel", () => {

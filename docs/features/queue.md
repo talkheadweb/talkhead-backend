@@ -1,6 +1,6 @@
 # Queue Management
 
-BullMQ-backed job queue with a REST API for external service integration.
+BullMQ-backed job queue with a REST API for external service integration. Every job is persisted in MongoDB (`QueueJob` collection) so the full history survives Redis restarts.
 
 ---
 
@@ -9,9 +9,9 @@ BullMQ-backed job queue with a REST API for external service integration.
 | Method | Path | Description | Auth |
 |--------|------|-------------|------|
 | `POST` | `/api/v1/queue` | Create and enqueue a job | `x-api-key` header |
-| `GET` | `/api/v1/queue` | List jobs (search, filter, sort, paginate) | `x-api-key` header |
-| `GET` | `/api/v1/queue/:jobId` | Get a single job by BullMQ job ID | `x-api-key` header |
-| `DELETE` | `/api/v1/queue/:jobId` | Cancel / remove a job | `x-api-key` header |
+| `GET` | `/api/v1/queue` | List jobs from MongoDB (search, filter, sort, paginate) | `x-api-key` header |
+| `GET` | `/api/v1/queue/:id` | Get a single job by MongoDB `_id` | `x-api-key` header |
+| `DELETE` | `/api/v1/queue/:id` | Cancel a job | `x-api-key` header |
 
 ---
 
@@ -32,33 +32,36 @@ POST /queue
      │
      ▼
   pending  ──► BullMQ worker picks up ──► processing
-                                               │
-                              ┌────────────────┼──────────────┐
-                              ▼                ▼              
-                          completed          failed          
-                                               │
-                                     retries (up to 3×)
-                                     exponential backoff
-                                               │
-                                         failed (final)
+  (MongoDB + BullMQ)                          │
+                             ┌────────────────┘
+                             ▼
+                   external API called
+                             │
+                  ┌──────────┴──────────┐
+                  ▼                     ▼
+               accepted              error → BullMQ retries (up to 3×)
+           (awaiting callback)            → markFailed after final attempt
 
-  pending job can be cancelled via DELETE /:jobId
+  Feature callback webhook (e.g. POST /generations/:id/callback):
+    success=true  → feature status = COMPLETED
+    success=false → feature status = FAILED
+
+  pending job can be cancelled via DELETE /:id
 ```
 
 ---
 
-## Job Statuses
-
-BullMQ native statuses (read directly from Redis):
+## Job Statuses (MongoDB)
 
 | Status | Description |
 |--------|-------------|
-| `waiting` | In queue, not yet picked up |
-| `active` | Currently being processed by the worker |
-| `completed` | Worker finished successfully |
-| `failed` | All retries exhausted |
-| `delayed` | Scheduled to run after a delay |
-| `paused` | Queue is paused |
+| `pending` | Created, not yet picked up by worker |
+| `processing` | Worker has picked it up — BullMQ `active` event fired |
+| `completed` | BullMQ `completed` event fired |
+| `failed` | All retries exhausted — BullMQ `failed` event fired |
+| `cancelled` | Cancelled via `DELETE /queue/:id` before processing |
+
+> **Note:** The MongoDB `QueueJob.status` is updated by `BullWorker` event listeners (active / completed / failed). The feature document's status (e.g. `Generation.status`) is updated separately via the callback webhook.
 
 ---
 
@@ -73,9 +76,8 @@ Content-Type: application/json
 
 {
   "type": "generation",
-  "payload": { "userId": "123", "inputType": "text", "outputType": "audio" },
-  "priority": 1,
-  "note": "Urgent request"
+  "payload": { "userId": "123", "inputType": "text", "voiceId": "af_heart" },
+  "priority": 1
 }
 ```
 
@@ -85,11 +87,13 @@ Response `201`:
   "success": true,
   "message": "Queue job created.",
   "data": {
+    "_id": "664f1b2c3e4a5b6c7d8e9f02",
     "recordId": "QJ-a1b2c3d4",
-    "bullJobId": "42",
     "type": "generation",
     "status": "pending",
-    "payload": { "userId": "123", "inputType": "text", "outputType": "audio" }
+    "payload": { "userId": "123", "inputType": "text", "voiceId": "af_heart" },
+    "attempts": 0,
+    "createdAt": "2026-06-12T10:00:00.000Z"
   }
 }
 ```
@@ -104,7 +108,7 @@ x-api-key: your-key
 ### Get one job
 
 ```http
-GET /api/v1/queue/42
+GET /api/v1/queue/664f1b2c3e4a5b6c7d8e9f02
 x-api-key: your-key
 ```
 
@@ -112,16 +116,16 @@ Response `200`:
 ```json
 {
   "data": {
-    "bullJobId": "42",
-    "recordId": "QJ-a1b2c3d4",
+    "_id": "664f1b2c3e4a5b6c7d8e9f02",
+    "recordId": "664f1b2c3e4a5b6c7d8e9f00",
     "type": "generation",
     "status": "completed",
+    "bullJobId": "664f1b2c3e4a5b6c7d8e9f00",
     "payload": { "userId": "123" },
     "attempts": 1,
-    "createdAt": "2026-06-09T10:00:00.000Z",
-    "processedAt": "2026-06-09T10:00:01.000Z",
-    "finishedAt": "2026-06-09T10:00:05.000Z",
-    "failedReason": null
+    "startedAt": "2026-06-12T10:00:01.000Z",
+    "finishedAt": "2026-06-12T10:00:05.000Z",
+    "createdAt": "2026-06-12T10:00:00.000Z"
   }
 }
 ```
@@ -129,11 +133,11 @@ Response `200`:
 ### Cancel a job
 
 ```http
-DELETE /api/v1/queue/42
+DELETE /api/v1/queue/664f1b2c3e4a5b6c7d8e9f02
 x-api-key: your-key
 ```
 
-Returns `409` if the job is `active` or `completed`.
+Returns `409` if the job is `processing` or `completed` or already `cancelled`.
 
 ---
 
@@ -142,33 +146,14 @@ Returns `409` if the job is `active` or `completed`.
 | Param | Description |
 |-------|-------------|
 | `search` | Partial match on `recordId` or `bullJobId` |
-| `status` | Filter by BullMQ status (`waiting`, `active`, `completed`, `failed`, `delayed`, `paused`) |
+| `status` | Filter by MongoDB status (`pending`, `processing`, `completed`, `failed`, `cancelled`) |
 | `type` | Filter by job type (e.g. `generation`) |
 | `page` | Page number (default 1) |
 | `limit` | Items per page (default 10) |
 | `sortBy` | Field to sort by (default `createdAt`) |
 | `sortOrder` | `asc` or `desc` (default `desc`) |
 
-> Data is read live from BullMQ (Redis). There is no MongoDB model for raw queue jobs. Business history (status, result URLs, etc.) is stored in each feature's own model.
-
----
-
-## BullMQ Worker Flow
-
-When a job becomes active, the worker (`Config/queue/processors/index.ts`) routes it by `job.data.type`:
-
-```
-processQueueJob(job)
-  switch(job.data.type)
-    case "generation" → handleGenerationJob(job)
-      1. GenerationService.markProcessing(recordId)
-      2. POST to QUEUE_EXTERNAL_API_URL with { recordId, payload }
-      3. success → GenerationService.markCompleted(recordId, result)
-      4. failure → GenerationService.markFailed(recordId, errorMessage)
-                   throw  → BullMQ retries (up to 3×)
-```
-
-**DB rule:** Processors never touch the database directly. All persistence goes through the feature's service worker-callback methods (`markProcessing` / `markCompleted` / `markFailed`).
+Data is read from MongoDB — full history, not limited to Redis TTL.
 
 ---
 
@@ -178,31 +163,34 @@ processQueueJob(job)
 import { QueueUtil } from "@/Config/queue";
 import { QueueJobType } from "@/Config/queue/const";
 
-// Enqueue a job
-const job = await QueueUtil.enqueue(
-  String(doc._id),         // recordId — MongoDB _id of your feature record
-  QueueJobType.GENERATION, // type — typed constant from Config/queue/const.ts
-  { userId, inputType },   // payload — feature-specific data (no type here)
-  { priority: 1 },         // optional: priority, delay, attempts
+// Enqueue a job — creates QueueJob in MongoDB + adds to BullMQ
+const { queueJobId } = await QueueUtil.enqueue(
+  String(doc._id),           // recordId — MongoDB _id of your feature record
+  QueueJobType.GENERATION,   // type — typed constant from Config/queue/const.ts
+  { userId, voiceId, ... },  // payload — feature-specific data
+  { priority: 1 },           // optional: priority, delay, attempts
 );
 
-// Check BullMQ state
-const state = await QueueUtil.getJobState(job.id!);
-
-// Remove from queue (before processing)
-await QueueUtil.remove(job.id!);
+// Save queueJobId reference on the feature document for cross-lookup
+await FeatureModel.findByIdAndUpdate(doc._id, { queueJobId });
 ```
+
+`enqueue` internally:
+1. Creates `QueueJob` in MongoDB (status: `pending`)
+2. Adds job to BullMQ using `recordId` as the BullMQ job ID
+3. Saves BullMQ's internal ID back onto `QueueJob.bullJobId` (fire-and-forget)
+4. Returns `{ queueJobId }` — MongoDB `_id` of the `QueueJob` document
 
 ---
 
 ## Business Rules
 
-- **Sequential by default:** `QUEUE_CONCURRENCY = 1` — jobs run one at a time. Raise only if the external API supports parallel requests.
+- **MongoDB is the source of truth** for job history — not Redis. Use `GET /queue/:id` for job status queries; BullMQ is only for live processing.
+- **Sequential by default:** `QUEUE_CONCURRENCY = 1` — jobs run one at a time.
 - **Retries:** 3 attempts with exponential backoff (2 s, 4 s, 8 s).
-- **type is required:** Every job must carry a `type` matching a `QueueJobType` constant. The processor uses this to route the job to the correct handler.
-- **type is typed:** `TQueueJobData.type` is `TQueueJobType` — TypeScript rejects unknown values at the call site.
-- **No MongoDB model:** Raw queue state lives in BullMQ (Redis). Feature records (Generation, etc.) track business state in MongoDB via worker callbacks.
-- **Cancel vs active:** Cancelling an `active` job returns `409`. Only `waiting` / `delayed` jobs can be removed.
+- **type is required:** Every job must carry a `type` matching a `QueueJobType` constant.
+- **Callback pattern:** Workers fire-and-forget to the external service. Completion arrives via a `POST /:id/callback` webhook on the feature's router — not from within the processor.
+- **Cancel guard:** Cancelling a `processing` or `completed` job returns 409.
 
 ---
 
@@ -210,8 +198,8 @@ await QueueUtil.remove(job.id!);
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `QUEUE_API_KEY` | ✅ | — | API key for REST endpoints |
-| `QUEUE_EXTERNAL_API_URL` | ✅ | — | External AI service webhook URL |
+| `QUEUE_API_KEY` | ✅ | — | API key for REST endpoints and feature callback webhooks |
+| `QUEUE_EXTERNAL_API_URL` | ✅ | — | External service URL the processor POSTs jobs to |
 | `QUEUE_NAME` | ❌ | `main-queue` | BullMQ queue name |
 | `QUEUE_CONCURRENCY` | ❌ | `1` | Jobs processed in parallel |
 
@@ -222,19 +210,20 @@ await QueueUtil.remove(job.id!);
 ```
 src/
   Config/queue/
-    index.ts                      # bullQueue + BullWorker + QueueUtil
-    const.ts                      # QueueJobType registry (add new types here)
-    types.ts                      # TQueueJobData, TEnqueueOptions, TProcessor
+    index.ts                      # bullQueue + BullWorker + QueueUtil + QueueJobModel re-export
+    const.ts                      # QueueJobType + QueueJobStatus (add new types here)
+    model.ts                      # QueueJob MongoDB model (persistent job store)
+    types.ts                      # TQueueJobData, TEnqueueOptions, IQueueJob, TEnqueueResult
     processors/
       index.ts                    # processQueueJob router (switch on type)
-      generation.processor.ts     # Generation-specific handler
+      generation.processor.ts     # Generation-specific handler (no markCompleted)
 
   App/Queue/
     controller.ts                 # HTTP handlers
-    service.ts                    # BullMQ read operations (list, getOne, cancel)
+    service.ts                    # MongoDB-backed CRUD (list, getById, cancel)
     routes.ts                     # Express router (all routes API-key protected)
     types.ts                      # TCreateQueueJobBody, TQueueJobStatus, DTOs
-    validation.ts                 # Zod schemas (type required, body: wrapper)
+    validation.ts                 # Zod schemas
     queue.swagger.ts              # OpenAPI definitions
 
   Middlewares/ApiKey/

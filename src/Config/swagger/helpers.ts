@@ -167,6 +167,12 @@ export const sortParams: object[] = [
   queryParam("sortOrder", { type: "string", enum: ["asc", "desc"], default: "desc" }, "Sort direction"),
 ];
 
+/** Standard date-range params — include on every list endpoint that supports createdAt filtering. */
+export const dateRangeParams: object[] = [
+  queryParam("dateFrom", { type: "string", format: "date", example: "2026-01-01" }, "Filter records created on or after this date (ISO 8601, start of day UTC)"),
+  queryParam("dateTo",   { type: "string", format: "date", example: "2026-12-31" }, "Filter records created on or before this date (ISO 8601, end of day UTC)"),
+];
+
 // ── Route (operation) builders ─────────────────────────────────────────────
 type OperationSpec = {
   summary     : string;

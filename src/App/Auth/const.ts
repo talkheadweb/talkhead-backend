@@ -6,6 +6,8 @@ export const AUTH_TTL = {
   ACCESS: 1 * 60,            // 1 min  — keep in sync with JWT_ACCESS_EXP
   VERIFY: 24 * 60 * 60,       // 24 hours
   RESET: 60 * 60,            // 1 hour
+  SOCIAL_CODE: 2 * 60,        // 2 min — one-time OAuth claim code
+  PRESIGNED_URL_CACHE: 10 * 60, // 10 min — cached presigned URL (URL itself valid for 15 min)
 } as const;
 
 // ── Redis key prefixes ─────────────────────────────────────────────────────
@@ -13,6 +15,8 @@ export const AUTH_REDIS_PREFIX = {
   REFRESH: "auth:refresh",
   VERIFY: "auth:verify",
   RESET: "auth:reset",
+  SOCIAL_CODE: "auth:social-code",
+  PRESIGNED_URL: "auth:presigned",
 } as const;
 
 // ── Cookie names ───────────────────────────────────────────────────────────
@@ -22,12 +26,16 @@ export const ACCESS_COOKIE_NAME = "access_token" as const;
 /** @deprecated use REFRESH_COOKIE_NAME */
 export const COOKIE_NAME = REFRESH_COOKIE_NAME;
 
-type CookieConfig = { sameSite: "lax" | "none" | "strict"; secure: boolean };
+type CookieConfig = { sameSite: "lax" | "none" | "strict"; secure: boolean; domain?: string };
 
 const baseOptions = (cookie: CookieConfig): CookieOptions => ({
   httpOnly: true,
-  secure: cookie.sameSite === "none" ? true : cookie.secure,
+  secure  : cookie.sameSite === "none" ? true : cookie.secure,
   sameSite: cookie.sameSite,
+  // domain is only set when AUTH_COOKIE_DOMAIN is configured.
+  // With a leading-dot domain (e.g. ".talkhead.ai") the browser shares the cookie
+  // across all subdomains, allowing socket.io (direct cross-origin) to receive it.
+  ...(cookie.domain ? { domain: cookie.domain } : {}),
 });
 
 export const getRefreshTokenCookieOptions = (

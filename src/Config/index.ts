@@ -8,11 +8,17 @@ config({ path: path.join(process.cwd(), ".env") });
 // ── Cookie defaults derived from environment ───────────────────────────────
 // sameSite "none" requires secure:true (browsers reject cookies otherwise).
 // In production we always use "none" + secure so cross-origin cookies work.
-const isProd       = process.env.NODE_ENV === ENodeEnv.PROD;
+const isProd         = process.env.NODE_ENV === ENodeEnv.PROD;
 const cookieSameSite = (process.env.AUTH_COOKIE_SAMESITE ?? (isProd ? "none" : "lax")) as "lax" | "none" | "strict";
 const cookieSecure   = process.env.AUTH_COOKIE_SECURE !== undefined
   ? process.env.AUTH_COOKIE_SECURE === "true"
   : cookieSameSite === "none"; // none always requires secure
+// Optional cookie domain — set to ".talkhead.ai" (note leading dot) when the
+// frontend and backend are on different subdomains of the same registrable domain.
+// This allows cookies set by the API (dev-api.talkhead.ai, via the Next.js proxy)
+// to be sent by the browser on direct cross-origin connections such as Socket.io.
+// Leave unset in local development — localhost needs no domain restriction.
+const cookieDomain   = process.env.AUTH_COOKIE_DOMAIN ?? undefined;
 
 // ── Zod-validated config ───────────────────────────────────────────────────
 const envConfig = z
@@ -29,6 +35,7 @@ const envConfig = z
       cookie: z.object({
         sameSite: z.enum(["lax", "none", "strict"]),
         secure  : z.boolean(),
+        domain  : z.string().optional(),
       }),
     }),
 
@@ -88,6 +95,7 @@ const envConfig = z
       concurrency   : z.number().default(1),             // jobs processed at a time
     }),
 
+
     // Rate limiting — windowMs in ms, max = allowed requests per window per key
     rate_limit: z.object({
       global: z.object({ windowMs: z.number(), max: z.number() }), // blanket /api/v1
@@ -107,7 +115,7 @@ const envConfig = z
     },
 
     auth: {
-      cookie: { sameSite: cookieSameSite, secure: cookieSecure },
+      cookie: { sameSite: cookieSameSite, secure: cookieSecure, domain: cookieDomain },
     },
 
     redis: {
@@ -164,9 +172,10 @@ const envConfig = z
       concurrency     : process.env.QUEUE_CONCURRENCY ? parseInt(process.env.QUEUE_CONCURRENCY) : 1,
     },
 
+
     rate_limit: {
       global: {
-        windowMs: process.env.RATE_LIMIT_GLOBAL_WINDOW_MS ? parseInt(process.env.RATE_LIMIT_GLOBAL_WINDOW_MS) : 15 * 60 * 1000,
+        windowMs: process.env.RATE_LIMIT_GLOBAL_WINDOW_MS ? parseInt(process.env.RATE_LIMIT_GLOBAL_WINDOW_MS) : 60 * 1000,
         max     : process.env.RATE_LIMIT_GLOBAL_MAX       ? parseInt(process.env.RATE_LIMIT_GLOBAL_MAX)       : 300,
       },
       auth: {

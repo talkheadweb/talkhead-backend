@@ -4,10 +4,12 @@ import CustomError from "@/Utils/errors/customError.class";
 import { HashHelper } from "@/Utils/helper/hashHelper";
 import { JwtHelper } from "@/Utils/helper/jwtHelper";
 import { MailUtils } from "@/Utils/mail/resend";
-import { deleteFromR2, uploadProfileImageToR2 } from "@/Utils/file/upload";
+import { getPresignedUrl, uploadProfileImageToR2 } from "@/Utils/file/upload";
+import { FileService } from "@/App/File/service";
+import { FileType } from "@/App/File/const";
 import { v4 as uuidv4 } from "uuid";
 import UserModel from "./model";
-import { AuthRedisService } from "./redisService";
+import { AuthRedisService, TSocialCodePayload } from "./redisService";
 import {
   TLoginInput,
   TLoginResponse,
@@ -113,7 +115,9 @@ const login = async (payload: TLoginInput): Promise<TLoginResponse> => {
 
   log.info("User logged in", { userId: user._id });
 
-  return { user: toPublicUser(user), accessToken, refreshToken };
+  const publicUser = toPublicUser(user);
+  publicUser.profilePictureUrl = await resolveProfilePictureUrl(user.profilePictureKey);
+  return { user: publicUser, accessToken, refreshToken };
 };
 
 // ── Logout ─────────────────────────────────────────────────────────────────
@@ -262,6 +266,58 @@ const resendVerificationEmail = async (email: string): Promise<void> => {
   log.info("Verification email resent", { userId: user._id });
 };
 
+// ── Social auth code ───────────────────────────────────────────────────────
+/**
+ * Creates a short-lived one-time code that holds both OAuth tokens.
+ * The code is a random UUID stored in Redis with a 2-minute TTL.
+ * Used to transfer the session from the backend OAuth callback to the frontend
+ * without exposing the refresh token in the URL.
+ */
+const createSocialAuthCode = async (tokens: TSocialCodePayload): Promise<string> => {
+  const code = uuidv4();
+  await AuthRedisService.socialCode.set(code, tokens);
+  return code;
+};
+
+/**
+ * Claims a social auth code exactly once.
+ * Deletes the Redis entry immediately — replaying the same code returns 401.
+ */
+const claimSocialAuthCode = async (code: string): Promise<TSocialCodePayload> => {
+  const payload = await AuthRedisService.socialCode.get(code);
+  if (!payload) throw new CustomError("Invalid or expired auth code.", 401);
+  await AuthRedisService.socialCode.del(code);
+  return payload;
+};
+
+// ── Profile picture URL resolution ────────────────────────────────────────
+/**
+ * Resolves the stored profilePictureKey value to a displayable URL.
+ *
+ * If a customDomain is configured the stored value is already a full HTTPS URL.
+ * Without a customDomain the stored value is a bare R2 object key — generate a
+ * short-lived presigned URL so the client can display it.
+ */
+// Resolves profilePictureKey (R2 file key or external https:// URL) to a displayable URL.
+const resolveProfilePictureUrl = async (raw: string | null | undefined): Promise<string | null> => {
+  if (!raw || !raw.trim()) return null;
+  if (raw.startsWith("http")) return raw;      // full URL (Google, etc.) — use as-is
+
+  // bare R2 file key — check cache first, generate + cache if missing
+  const cached = await AuthRedisService.presignedUrlCache.get(raw).catch(() => null);
+  if (cached) return cached;
+
+  try {
+    // 15 min validity — always longer than the 10 min cache TTL
+    const url = await getPresignedUrl(raw, 15 * 60);
+    AuthRedisService.presignedUrlCache.set(raw, url).catch(() => {/* non-critical */});
+    return url;
+  } catch {
+    log.warn("Could not generate presigned URL for profile picture", { key: raw });
+    return null;
+  }
+};
+
 // ── Get current user ───────────────────────────────────────────────────────
 /**
  * Returns the profile of the authenticated user.
@@ -270,7 +326,9 @@ const resendVerificationEmail = async (email: string): Promise<void> => {
 const getMe = async (userId: string): Promise<TUserPublic> => {
   const user = await UserModel.findById(userId);
   if (!user) throw new CustomError("User not found.", 404);
-  return toPublicUser(user);
+  const publicUser = toPublicUser(user);
+  publicUser.profilePictureUrl = await resolveProfilePictureUrl(user.profilePictureKey);
+  return publicUser;
 };
 
 // ── Update profile ─────────────────────────────────────────────────────────
@@ -302,14 +360,28 @@ const updateProfile = async (
     // Upload new image first, then delete the old one.
     // Order matters: if the upload fails we throw before touching R2, leaving
     // the user's current picture intact.
-    const { fileUrl } = await uploadProfileImageToR2(file.path, file.originalname);
-    updates.profilePicture = fileUrl;
+    const { fileKey } = await uploadProfileImageToR2(file.path, file.originalname);
+    updates.profilePictureKey = fileKey;
 
-    // Delete old picture after a successful upload (best-effort, non-blocking)
-    if (existing.profilePicture) {
-      deleteFromR2(existing.profilePicture).catch(() => {
-        log.warn("Could not delete old profile picture", { userId, url: existing.profilePicture });
+    // Track the upload in FileRecord (non-critical, fire-and-forget)
+    FileService.track(userId, {
+      type        : FileType.PROFILE_PICTURE,
+      fileKey,
+      originalName: file.originalname,
+      mimeType    : "image/webp",
+      fileSize    : 0,
+      ownerId     : userId,
+    }).catch(() => {});
+
+    // Delete old picture (R2 + FileRecord) + invalidate presigned URL cache
+    if (existing.profilePictureKey) {
+      FileService.deleteByRef(existing.profilePictureKey).catch(() => {
+        log.warn("Could not delete old profile picture", { userId, key: existing.profilePictureKey });
       });
+      // Only R2 file keys have cached presigned URLs; external https:// URLs are never cached
+      if (!existing.profilePictureKey.startsWith("http")) {
+        AuthRedisService.presignedUrlCache.del(existing.profilePictureKey).catch(() => {/* non-critical */});
+      }
     }
   }
 
@@ -322,7 +394,9 @@ const updateProfile = async (
   if (!user) throw new CustomError("User not found.", 404);
 
   log.info("Profile updated", { userId, fields: Object.keys(updates) });
-  return toPublicUser(user);
+  const publicUser = toPublicUser(user);
+  publicUser.profilePictureUrl = await resolveProfilePictureUrl(user.profilePictureKey);
+  return publicUser;
 };
 
 // ── Change password ────────────────────────────────────────────────────────
@@ -368,4 +442,6 @@ export const AuthService = {
   getMe,
   updateProfile,
   changePassword,
+  createSocialAuthCode,
+  claimSocialAuthCode,
 };

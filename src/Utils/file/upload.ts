@@ -316,6 +316,74 @@ export class R2BucketUtils {
 }
 
 
+/**
+ * Generate a pre-signed R2 key without uploading anything.
+ * Always UUID-based — keys are globally unique, never overwrite existing files.
+ */
+export const generateR2Key = (folder: string, originalName: string): string => {
+  const ext = path.extname(originalName).toLowerCase();
+  return `${folder}/${uuidv4()}${ext}`;
+};
+
+export interface GenericUploadResult {
+  fileKey    : string;
+  fileUrl    : string;
+  mimeType   : string;
+  fileSize   : number;
+  originalName: string;
+}
+
+/**
+ * Upload a multer temp file to R2 under a guaranteed-unique key.
+ * The key is `${folder}/<uuid><ext>` — never overwrites, never versions.
+ * Deletes the temp file from disk after upload (success or failure).
+ */
+export const uploadGenericFile = async (
+  file  : Express.Multer.File,
+  folder: string,
+): Promise<GenericUploadResult> => {
+  const fileKey = generateR2Key(folder, file.originalname);
+  await uploadFileToR2(file.path, fileKey, file.mimetype);
+  const fileUrl = r2Config.customDomain
+    ? `https://${r2Config.customDomain}/${fileKey}`
+    : fileKey;
+  return {
+    fileKey,
+    fileUrl,
+    mimeType    : file.mimetype,
+    fileSize    : file.size,
+    originalName: file.originalname,
+  };
+};
+
+/**
+ * Upload a local temp file to R2 using a caller-supplied key.
+ * Deletes the temp file from disk after a successful upload.
+ */
+export const uploadFileToR2 = async (
+  filePath   : string,
+  fileKey    : string,
+  contentType: string,
+): Promise<void> => {
+  try {
+    const buffer = fs.readFileSync(filePath);
+    await r2Client.send(new PutObjectCommand({
+      Bucket     : r2Config.bucketName,
+      Key        : fileKey,
+      Body       : buffer,
+      ContentType: contentType,
+      Metadata   : { uploadedAt: new Date().toISOString() },
+    }));
+    fs.unlinkSync(filePath);
+  } catch (error) {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    throw new CustomError(
+      `Failed to upload file to R2: ${error instanceof Error ? error.message : "Unknown error"}`,
+      500,
+    );
+  }
+};
+
 // Download image from URL to temporary file
 const downloadImageFromUrl = async (imageUrl: string, fileName: string): Promise<string> => {
     return new Promise((resolve, reject) => {

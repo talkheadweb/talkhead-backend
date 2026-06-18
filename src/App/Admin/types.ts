@@ -9,7 +9,7 @@ export const AdminUserSearchKeys: (keyof IUser)[]  = ["name", "email"];
 // Fields used for discrete filtering — type derived from Mongoose schema at runtime
 export const AdminUserFilterKeys: (keyof IUser)[]  = ["role", "isVerified", "isActive"];
 // Extra filter keys not present in the IUser schema (join keys, computed fields)
-export const AdminUserExtraFilterKeys: string[]     = [];
+export const AdminUserExtraFilterKeys: string[]     = ["dateFrom", "dateTo"];
 
 // ── Query payload type passed from controller → service ────────────────────
 export type TListUsersPayload = IQueryItems<Partial<IUser>>;

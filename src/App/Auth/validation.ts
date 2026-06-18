@@ -93,6 +93,12 @@ const changePasswordZodSchema = z.object({
   }),
 });
 
+const claimSocialCodeZodSchema = z.object({
+  body: z.object({
+    code: z.string({ required_error: "Auth code is required." }).uuid("Invalid auth code format."),
+  }),
+});
+
 export const AuthValidation = {
   registerZodSchema,
   loginZodSchema,
@@ -102,4 +108,5 @@ export const AuthValidation = {
   resendVerificationZodSchema,
   updateProfileZodSchema,
   changePasswordZodSchema,
+  claimSocialCodeZodSchema,
 };

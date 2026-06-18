@@ -3,6 +3,8 @@ import socialRouter     from "@/App/Auth/social/routes";
 import adminRouter      from "@/App/Admin/routes";
 import queueRouter      from "@/App/Queue/routes";
 import generationRouter from "@/App/Core/Generation/routes";
+import avatarRouter     from "@/App/Avatar/routes";
+import fileRouter       from "@/App/File/routes";
 import { Router } from "express";
 
 const rootRouter = Router();
@@ -21,6 +23,9 @@ rootRouter.use("/queue", queueRouter);
 rootRouter.use("/generations", generationRouter);
 
 // ── Feature routes ────────────────────────────────────────────────────────────
+rootRouter.use("/avatars", avatarRouter);
+rootRouter.use("/files",   fileRouter);
+
 // Add new feature modules here:
 //   import featureRouter from "@/App/Feature/routes";
 //   rootRouter.use("/features", featureRouter);

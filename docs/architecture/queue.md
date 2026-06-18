@@ -1,6 +1,7 @@
 # Queue Architecture
 
-This document explains how the BullMQ-based queue system is structured, how jobs flow through it, and how feature modules connect to it.
+This document explains how the BullMQ-based queue system is structured, how jobs flow
+through it, and how to add new queued features.
 
 ---
 
@@ -9,182 +10,249 @@ This document explains how the BullMQ-based queue system is structured, how jobs
 The queue system has two layers:
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  Config/queue/          INFRASTRUCTURE                  │
-│  ├─ index.ts            BullMQ Queue + BullWorker +     │
-│  │                      QueueUtil (all in one place)    │
-│  ├─ const.ts            QueueJobType registry           │
-│  ├─ types.ts            TQueueJobData, TEnqueueOptions  │
-│  └─ processors/                                         │
-│       ├─ index.ts       processQueueJob router          │
-│       └─ generation.processor.ts                        │
-├─────────────────────────────────────────────────────────┤
-│  App/Queue/             REST API                        │
-│  ├─ routes.ts           POST / GET / DELETE endpoints   │
-│  ├─ controller.ts       HTTP handlers                   │
-│  └─ service.ts          Reads job state from BullMQ     │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  Config/queue/          INFRASTRUCTURE                      │
+│  ├─ index.ts            bullQueue + BullWorker + QueueUtil  │
+│  ├─ const.ts            QueueJobType + QueueJobStatus       │
+│  ├─ types.ts            TQueueJobData, IQueueJob,           │
+│  │                      TEnqueueOptions, TEnqueueResult     │
+│  └─ processors/                                             │
+│       ├─ index.ts       processQueueJob router              │
+│       └─ generation.processor.ts                            │
+├─────────────────────────────────────────────────────────────┤
+│  App/Queue/             REST API (admin-facing)             │
+│  ├─ model.ts            QueueJob MongoDB model (persistent) │
+│  ├─ routes.ts           POST / GET / DELETE endpoints       │
+│  ├─ controller.ts       HTTP handlers                       │
+│  └─ service.ts          MongoDB-backed CRUD                 │
+└─────────────────────────────────────────────────────────────┘
 ```
-
-> **Note:** There is no `Utils/queue/` layer. All queue code lives in `Config/queue/`. Feature modules import directly from `@/Config/queue`.
 
 ---
 
-## Config/queue/index.ts
+## BullMQ Configuration
 
-Exports three things:
+All BullMQ infrastructure is wired in `Config/queue/index.ts`.
+
+### Queue default job options
+
+```ts
+defaultJobOptions: {
+  attempts        : 3,                              // retry up to 3 times on failure
+  backoff         : { type: "exponential", delay: 2000 },  // 2s → 4s → 8s
+  removeOnComplete: { count: 5 },                  // keep last 5 completed jobs in Redis
+  removeOnFail    : { count: 5 },                  // keep last 5 failed jobs in Redis
+}
+```
+
+### Retry behaviour
+
+When a processor throws, BullMQ automatically retries using exponential backoff:
+
+| Attempt | Delay before retry |
+|---------|-------------------|
+| 1st retry | 2 s |
+| 2nd retry | 4 s |
+| 3rd retry | 8 s |
+| After 3rd | job marked `failed`, `BullWorker failed` event fires |
+
+To change retry count or delay for a specific job, pass `attempts` / `delay` to `QueueUtil.enqueue`:
+
+```ts
+await QueueUtil.enqueue(recordId, QueueJobType.GENERATION, payload, {
+  attempts: 5,    // override default 3
+  delay   : 3000, // wait 3s before first attempt
+});
+```
+
+### Concurrency
+
+`QUEUE_CONCURRENCY` (default `1`) controls how many jobs the worker processes in parallel.
+Keep it at `1` while the external API has rate limits. Raise it only when you have confirmed
+the external service supports concurrent calls and Redis/CPU headroom exists.
+
+### Job ID pinning
+
+`QueueUtil.enqueue` passes `{ jobId: recordId }` to BullMQ. This makes BullMQ use the
+MongoDB document `_id` as its internal job ID, so:
+
+- `bullQueue.getJob(recordId)` works without storing a separate bullJobId anywhere
+- `QueueUtil.remove(recordId)` uses the same ID directly
+- Duplicate enqueues for the same recordId are silently deduplicated by BullMQ
+
+### Redis job retention
+
+`removeOnComplete: { count: 5 }` and `removeOnFail: { count: 5 }` cap how many
+finished jobs BullMQ keeps in Redis. Older ones are evicted automatically. This is why
+the `QueueJob` MongoDB model exists — it is the permanent record that survives Redis eviction.
+
+---
+
+## BullWorker event listeners
+
+`BullWorker.start()` registers three events that keep the MongoDB `QueueJob` document in
+sync with BullMQ's live state:
+
+| Event | What it does |
+|-------|-------------|
+| `active` | `QueueJob.status = PROCESSING`, sets `startedAt` |
+| `completed` | `QueueJob.status = COMPLETED`, sets `finishedAt` |
+| `failed` | `QueueJob.status = FAILED`, sets `failedReason`, `attempts`, `finishedAt` |
+
+These updates are fire-and-forget (`.catch` logged) so a MongoDB hiccup never blocks
+the BullMQ event loop.
+
+---
+
+## Persistent Job Store — QueueJob Model
+
+BullMQ stores jobs in Redis, which is not durable. Every `QueueUtil.enqueue` call also
+creates a `QueueJob` document in MongoDB so the full history survives Redis restarts,
+pod recycling, or queue flushes.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `recordId` | string | Feature document `_id` — link back to the owning record |
+| `type` | `TQueueJobType` | Job type constant |
+| `payload` | object | Full payload at enqueue time |
+| `status` | enum | `pending → processing → completed \| failed \| cancelled` |
+| `bullJobId` | string? | BullMQ internal ID — informational only |
+| `attempts` | number | Retry count (updated on failure) |
+| `failedReason` | string? | Last error message |
+| `startedAt` | Date? | When the worker picked up the job |
+| `finishedAt` | Date? | When the job completed or permanently failed |
+
+Feature documents (e.g. `Generation`) store a `queueJobId` ObjectId ref to this
+collection for easy cross-lookup.
+
+---
+
+## Processor contract
+
+**Processors MUST NOT import models or call DB operations directly.**
+All persistence is delegated to the feature service's worker-callback methods.
+
+```
+Generation processor lifecycle (fire-and-forget trigger pattern):
+
+  1. GenerationService.markProcessing(recordId)
+  2. POST trigger to external API — await only the HTTP acceptance (2xx)
+     dev:  skip real HTTP call (logged, no-op)
+     prod: POST QUEUE_EXTERNAL_API_URL with { recordId, callbackUrl, payload }
+  3. 2xx received → exit immediately (job is done from BullMQ's perspective)
+     non-2xx or network error → GenerationService.markFailed(recordId, msg) + throw
+
+  throw causes BullMQ to schedule a retry (up to 3×, exponential backoff).
+  After 3 failures the job is permanently failed and the `failed` event fires.
+
+  Completion (markCompleted) is NOT called by the processor.
+  It is called by POST /generations/:id/callback when the external API calls back.
+  The callback also emits a `generation:update` socket event to the user.
+```
+
+### Dev vs prod trigger
+
+The processor's `triggerExternalApi` function checks `config.node_env`:
+
+```ts
+// dev — skip the real HTTP call; trigger the callback manually via the REST endpoint
+if (config.node_env !== ENodeEnv.PROD) {
+  log.info("Generation trigger — dev mode, skipping real HTTP call", { recordId });
+  return;
+}
+// prod — fire the trigger and await only HTTP acceptance
+const response = await fetch(config.queue.external_api_url, {
+  method : "POST",
+  headers: { "Content-Type": "application/json", "x-api-key": config.queue.api_key },
+  body   : JSON.stringify({ recordId, callbackUrl, payload }),
+});
+if (!response.ok) throw new Error(`External API trigger failed with ${response.status}`);
+```
+
+---
+
+## Config/queue/index.ts exports
 
 | Export | Type | Purpose |
 |--------|------|---------|
-| `bullQueue` | `Queue` | Singleton BullMQ queue. Used internally by `QueueUtil` and directly by `App/Queue/service`. |
-| `BullWorker` | Class | Wraps a BullMQ `Worker`. Created once in `bootstrap.ts`. |
-| `QueueUtil` | Object | Feature-level interface — the only thing feature services need to import. |
+| `bullQueue` | `Queue` | BullMQ singleton — used internally by `QueueUtil` and `App/Queue/service` |
+| `BullWorker` | Class | Worker wrapper — created once in `bootstrap.ts` |
+| `QueueUtil` | Object | Feature-level interface — the only thing feature services need |
 
-**Connection** — shares the same Redis credentials as the main Redis client (`config.redis.*`).
-
-**Default job options** (applied to all jobs unless overridden):
-
-| Option | Value |
-|--------|-------|
-| `attempts` | 3 |
-| `backoff` | exponential, 2 s base (2 s → 4 s → 8 s) |
-| `removeOnComplete` | keep last 100 |
-| `removeOnFail` | keep last 50 |
-
----
-
-## Config/queue/const.ts — Job type registry
-
-Single source of truth for all job type constants. **Update this file when adding a new queued feature.**
-
-```ts
-export const QueueJobType = {
-  GENERATION: "generation",
-  // Add new types here:
-  // TRANSCRIPTION: "transcription",
-} as const;
-```
-
-Both enqueuing (feature service) and routing (processor) import `QueueJobType` from here. TypeScript will reject unknown values at every call site.
-
----
-
-## Config/queue/types.ts
-
-| Type | Shape |
-|------|-------|
-| `TQueueJobData` | `{ type: TQueueJobType; recordId: string; payload: Record<string, unknown> }` |
-| `TEnqueueOptions` | `{ priority?, delay?, attempts? }` |
-| `TProcessor<T>` | `(job: Job<T>) => Promise<void>` |
-
-`type` is a **top-level typed discriminant** — never inside `payload`. The processor reads `job.data.type` directly.
-
----
-
-## Config/queue/processors/index.ts — Job router
-
-The single entry point for the BullMQ worker. Routes every job to the correct feature handler by reading `job.data.type`.
-
-```
-processQueueJob(job)
-  ├─ reads job.data.type  (TQueueJobType — fully typed, no cast)
-  ├─ "generation"  → handleGenerationJob(job)
-  └─ (unknown)     → forward raw to external API
-```
-
-### Processor contract — DB operations rule
-
-**Processors MUST NOT perform direct database operations.**
-
-All persistence is delegated to the owning feature's service via worker-callback methods:
-
-```
-Processor role:
-  1. Call featureService.markProcessing(recordId)
-  2. Call external API
-  3. On success → featureService.markCompleted(recordId, result)
-  4. On failure → featureService.markFailed(recordId, errorMessage)
-                  then throw  ← BullMQ retries
-
-Service role:
-  markProcessing / markCompleted / markFailed
-  — these are the ONLY DB methods the processor is allowed to call.
-  — they live in the feature's service.ts, never in the processor.
-```
-
----
-
-## QueueUtil — Feature-level interface
-
-The only import a feature service needs:
-
-```ts
-import { QueueUtil } from "@/Config/queue";
-import { QueueJobType } from "@/Config/queue/const";
-
-const job = await QueueUtil.enqueue(
-  String(doc._id),         // recordId — MongoDB _id of the feature record
-  QueueJobType.GENERATION, // type — typed constant, separate from payload
-  { userId, inputType, ... }, // payload — feature-specific data (no type here)
-  { priority: 1 },         // options — optional
-);
-```
+### QueueUtil methods
 
 | Method | Signature | Purpose |
 |--------|-----------|---------|
-| `enqueue` | `(recordId, type, payload, opts?)` | Add a job to the queue |
-| `getJobState` | `(bullJobId)` | Get current BullMQ state string |
-| `remove` | `(bullJobId)` | Remove a pending job |
-| `close` | `()` | Graceful shutdown |
-
----
-
-## App/Queue — REST API
-
-Provides HTTP endpoints for external services to manage jobs directly (API-key protected).
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/v1/queue` | Create and enqueue a raw job |
-| `GET` | `/api/v1/queue` | List jobs with search, filter, sort, pagination |
-| `GET` | `/api/v1/queue/:jobId` | Get job state by BullMQ job ID |
-| `DELETE` | `/api/v1/queue/:jobId` | Remove a job |
-
-**Auth:** `x-api-key` header (see `Middlewares/ApiKey`).
-
-**List supports:** `search` (recordId / bullJobId), `status`, `type`, `page`, `limit`, `sortBy`, `sortOrder`.
-
-> `App/Queue` reads job state live from BullMQ (Redis). There is no MongoDB model for raw queue jobs. Business history lives in each feature's own model.
+| `enqueue` | `(recordId, type, payload, opts?) → Promise<TEnqueueResult>` | Create MongoDB record + add to BullMQ |
+| `getJobState` | `(recordId) → Promise<string \| null>` | Live BullMQ state |
+| `remove` | `(recordId) → Promise<void>` | Remove job from BullMQ |
+| `close` | `() → Promise<void>` | Graceful shutdown |
 
 ---
 
 ## Full Job Lifecycle
 
 ```
-User → POST /generations
+User → POST /generations (multipart)
+  ↓
+Controller: generate R2 keys (no upload yet)
   ↓
 GenerationService.create()
-  ├─ GenerationModel.create({ status: PENDING, bullJobId: "pending" })
-  ├─ QueueUtil.enqueue(recordId, QueueJobType.GENERATION, { userId, ... })  → BullMQ
-  └─ doc.bullJobId = job.id;  doc.save()
+  ├─ GenerationModel.create({ status: PENDING, ... })
+  ├─ QueueUtil.enqueue(String(doc._id), QueueJobType.GENERATION, payload)
+  │    ├─ QueueJobModel.create({ recordId, type, payload, status: PENDING })  ← MongoDB
+  │    └─ bullQueue.add(recordId, data, { jobId: recordId })                 ← Redis/BullMQ
+  └─ GenerationModel.findByIdAndUpdate(doc._id, { queueJobId })
+  ↓
+Controller uploads files to R2 (after successful enqueue)
 
-BullMQ (Redis) holds the job until the worker is free
-  ↓
-BullWorker.start()  (bootstrap.ts)
-  ↓
-processQueueJob(job)   ← Config/queue/processors/index.ts
-  switch(job.data.type)
-  ↓
-handleGenerationJob(job)   ← Config/queue/processors/generation.processor.ts
-  ├─ GenerationService.markProcessing(recordId)   → MongoDB: status = PROCESSING
-  ├─ fetch(external AI API)
-  │    ├─ success → GenerationService.markCompleted(recordId, { audioUrl, videoUrl, ysid })
-  │    │            → MongoDB: status = COMPLETED + result fields
-  │    └─ failure → GenerationService.markFailed(recordId, errorMessage)
-  │                 → MongoDB: status = FAILED + errorMessage
-  │                 → throw  ← BullMQ retries (up to 3×)
-  └─ done
+───── Worker picks up job ──────────────────────────────────────────────────
+
+BullWorker `active` event → QueueJobModel: status = PROCESSING, startedAt
+
+handleGenerationJob(job)
+  ├─ GenerationService.markProcessing(recordId)  → Generation: status = PROCESSING
+  ├─ triggerExternalApi(recordId, payload)
+  │     dev  → no-op (log only — trigger callback manually for testing)
+  │     prod → POST QUEUE_EXTERNAL_API_URL { recordId, callbackUrl, payload }
+  │            await 2xx acceptance only — exits immediately (fire-and-forget)
+  │
+  ├─ 2xx accepted → exit (BullMQ marks job completed)
+  │
+  └─ non-2xx OR network error
+        GenerationService.markFailed(recordId, msg)
+        → Generation: status = FAILED, errorMessage
+        throw → BullMQ retries (attempt 2, then 3)
+
+POST /api/v1/generations/:id/callback  (called by external API, not by worker)
+  ├─ success=true
+  │     GenerationService.markCompleted(recordId, outputFileKey)
+  │     → Generation: status = COMPLETED, outputFileKey, completedAt
+  │     → socket emit `generation:update` { generationId, status, outputFileKey, outputUrl }
+  │
+  └─ success=false
+        GenerationService.markFailed(recordId, msg)
+        → Generation: status = FAILED, errorMessage
+        → socket emit `generation:update` { generationId, status, errorMessage }
+
+BullWorker `completed` event → QueueJobModel: status = COMPLETED, finishedAt
+BullWorker `failed` event    → QueueJobModel: status = FAILED, failedReason, finishedAt
 ```
+
+---
+
+## App/Queue — REST API
+
+HTTP endpoints for external services and admins (all `x-api-key` protected).
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/queue` | Create and enqueue a raw job |
+| `GET` | `/api/v1/queue` | List jobs (search, filter by status/type, sort, paginate) |
+| `GET` | `/api/v1/queue/:id` | Get one `QueueJob` by MongoDB `_id` |
+| `DELETE` | `/api/v1/queue/:id` | Cancel a pending job |
+
+Source of truth: MongoDB `QueueJob` collection — full history, not limited by Redis TTL.
 
 ---
 
@@ -193,32 +261,31 @@ handleGenerationJob(job)   ← Config/queue/processors/generation.processor.ts
 | Env Variable | Default | Description |
 |---|---|---|
 | `QUEUE_NAME` | `main-queue` | BullMQ queue name |
-| `QUEUE_CONCURRENCY` | `1` | Jobs processed in parallel (1 = sequential) |
-| `QUEUE_API_KEY` | — | Required — API key for `/queue` REST endpoints |
-| `QUEUE_EXTERNAL_API_URL` | — | Required — URL the processor POSTs jobs to |
-
-**Concurrency is 1 by design** — AI generation jobs are resource-intensive. Raise `QUEUE_CONCURRENCY` only if the external AI service can handle parallel requests.
+| `QUEUE_CONCURRENCY` | `1` | Jobs processed in parallel |
+| `QUEUE_API_KEY` | — | API key for `/queue` REST endpoints |
+| `QUEUE_EXTERNAL_API_URL` | — | External service URL (prod). Dev uses mock response. |
 
 ---
 
 ## Adding a New Queued Feature — Checklist
 
 ```
-[ ] 1. Add QueueJobType.NEW_FEATURE = "new-feature"  in Config/queue/const.ts
+[ ] 1. Add QueueJobType.NEW_FEATURE = "new-feature" in Config/queue/const.ts
 
 [ ] 2. Add worker-callback methods to the feature's service.ts:
-        markProcessing(recordId)
-        markCompleted(recordId, result)
-        markFailed(recordId, errorMessage)
-        — DB operations ONLY here, never in the processor.
+        markProcessing(recordId)          — status → PROCESSING
+        markCompleted(recordId, result)   — status → COMPLETED + save result fields
+        markFailed(recordId, msg)         — status → FAILED + errorMessage
 
 [ ] 3. Create Config/queue/processors/newFeature.processor.ts
-        import { NewFeatureService } from "@/App/Core/NewFeature/service"
-        — calls service methods, no direct DB access.
+        — internal callXxxApi() function: dev mock / prod HTTP (switch on config.node_env)
+        — handleXxxJob(): markProcessing → callXxxApi → markCompleted | markFailed
+        — NO direct DB access, NO model imports
 
 [ ] 4. Register in processors/index.ts:
-        import { handleNewFeatureJob } from "./newFeature.processor";
         case QueueJobType.NEW_FEATURE: return handleNewFeatureJob(job);
 
-[ ] 5. Update docs/architecture/queue.md if the pattern changes.
+[ ] 5. Add queueJobId: ObjectId ref to the feature's Mongoose schema
+
+[ ] 6. Update this file if the pattern changes.
 ```

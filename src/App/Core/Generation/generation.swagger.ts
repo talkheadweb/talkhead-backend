@@ -7,6 +7,7 @@
 
 import {
   created,
+  dateRangeParams,
   enumOf,
   errors,
   jsonBody,
@@ -17,11 +18,7 @@ import {
   str,
   withTag,
 } from "@/Config/swagger/helpers";
-import {
-  GenerationInputTypeValues,
-  GenerationOutputTypeValues,
-  GenerationStatusValues,
-} from "./const";
+import { GenerationInputTypeValues, GenerationStatusValues } from "./const";
 
 const { post, get, patch, del } = withTag("Generation");
 
@@ -29,37 +26,35 @@ const { post, get, patch, del } = withTag("Generation");
 const generationObject = {
   type      : "object",
   properties: {
-    _id             : str({ example: "664f1b2c3e4a5b6c7d8e9f00" }),
-    userId          : str({ example: "664f1b2c3e4a5b6c7d8e9f01" }),
-    bullJobId       : str({ example: "42" }),
-    status          : enumOf([...GenerationStatusValues]),
-    inputType       : enumOf([...GenerationInputTypeValues]),
-    outputType      : enumOf([...GenerationOutputTypeValues]),
-    inputText       : str({ example: "Generate a calming audio clip about nature." }),
-    referenceImageUrl: str({ example: "https://cdn.example.com/ref.jpg" }),
-    audioUrl        : str({ example: "https://cdn.example.com/out.mp3" }),
-    videoUrl        : str({ example: "https://cdn.example.com/out.mp4" }),
-    ysid            : str({ example: "ys_abc123" }),
-    errorMessage    : str({ example: "Processing failed due to timeout." }),
-    completedAt     : { type: "string", format: "date-time" },
-    createdAt       : { type: "string", format: "date-time" },
-    updatedAt       : { type: "string", format: "date-time" },
+    _id           : str({ example: "664f1b2c3e4a5b6c7d8e9f00" }),
+    userId        : str({ example: "664f1b2c3e4a5b6c7d8e9f01" }),
+    status        : enumOf([...GenerationStatusValues]),
+    inputType     : enumOf([...GenerationInputTypeValues]),
+    voiceId       : str({ example: "af_heart" }),
+    avatarImageKey: str({ example: "generations/images/uuid.jpg" }),
+    avatarImageUrl: str({ example: "https://r2.example.com/generations/images/uuid.jpg?presigned=..." }),
+    inputText     : str({ example: "Read this aloud in a calm voice." }),
+    inputAudioKey : str({ example: "generations/audio/uuid.mp3" }),
+    inputAudioUrl : str({ example: "https://r2.example.com/generations/audio/uuid.mp3?presigned=..." }),
+    outputFileKey : str({ example: "generations/output/uuid.mp4" }),
+    outputUrl     : str({ example: "https://r2.example.com/generations/output/uuid.mp4?presigned=..." }),
+    errorMessage  : str({ example: "Processing failed due to timeout." }),
+    completedAt   : { type: "string", format: "date-time" },
+    label         : str({ example: "Product demo take 2" }),
+    tags          : { type: "array", items: { type: "string" }, example: ["demo", "v2"] },
+    createdAt     : { type: "string", format: "date-time" },
+    updatedAt     : { type: "string", format: "date-time" },
   },
 };
 
 // ── Shared list query parameters ───────────────────────────────────────────
 const generationListParams: object[] = [
-  // Search
-  queryParam("search", { type: "string" }, "Search by ysid or MongoDB _id"),
-
-  // Filters
-  queryParam("status",     enumOf([...GenerationStatusValues]),    "Filter by job status"),
-  queryParam("inputType",  enumOf([...GenerationInputTypeValues]), "Filter by input type"),
-  queryParam("outputType", enumOf([...GenerationOutputTypeValues]),"Filter by output type"),
-
-  // Pagination + sort
+  queryParam("status",    enumOf([...GenerationStatusValues]),    "Filter by job status"),
+  queryParam("inputType", enumOf([...GenerationInputTypeValues]), "Filter by input type"),
+  queryParam("userId",    { type: "string" },                     "Filter by user (admin only)"),
   ...paginationParams,
   ...sortParams,
+  ...dateRangeParams,
 ];
 
 // ── Paths ──────────────────────────────────────────────────────────────────
@@ -68,18 +63,33 @@ export const generationPaths = {
     ...post({
       summary    : "Create a generation job",
       description:
-        "Creates a new generation record (status: pending) and immediately enqueues it in BullMQ. " +
-        "Returns the record including the BullMQ job ID for tracking.",
-      secured  : true,
-      body     : jsonBody({
-        required: ["inputType", "outputType"],
-        props   : {
-          inputType        : enumOf([...GenerationInputTypeValues]),
-          outputType       : enumOf([...GenerationOutputTypeValues]),
-          inputText        : str({ max: 5000, example: "Describe the scene in calm tones." }),
-          referenceImageUrl: str({ example: "https://cdn.example.com/ref.jpg" }),
+        "Accepts multipart/form-data. Either upload an avatarImage file or provide an avatarImageKey (R2 file key from the Avatar module). " +
+        "When inputType is audio, inputAudio file (MP3/WAV/M4A ≤ 12 MB) is also required. " +
+        "Files are uploaded to R2 after the job is enqueued; the record is rolled back if enqueue fails. " +
+        "Pass ?mode=test to skip the external API and resolve the job instantly with a dummy output file (for integration testing).",
+      secured    : true,
+      parameters : [
+        queryParam("mode", enumOf(["test"]), "Test mode — skips external API, resolves job with dummy output immediately"),
+      ],
+      body     : {
+        required   : true,
+        content    : {
+          "multipart/form-data": {
+            schema: {
+              type      : "object",
+              required  : ["inputType", "voiceId"],
+              properties: {
+                inputType      : enumOf([...GenerationInputTypeValues]),
+                voiceId        : str({ example: "af_heart" }),
+                inputText      : str({ max: 5000, example: "Read this calmly." }),
+                avatarImageKey : { ...str({ example: "avatar-images/uuid.webp" }), description: "R2 file key from an existing Avatar record (alternative to avatarImage file upload)" },
+                avatarImage    : { type: "string", format: "binary", description: "JPEG/PNG ≤ 5 MB (alternative to avatarImageKey)" },
+                inputAudio     : { type: "string", format: "binary", description: "MP3/WAV/M4A ≤ 12 MB (required when inputType=audio)" },
+              },
+            },
+          },
         },
-      }),
+      },
       responses: {
         ...created("Generation job created.", generationObject),
         ...errors(400, 401),
@@ -88,12 +98,9 @@ export const generationPaths = {
 
     ...get({
       summary    : "List generation jobs",
-      description: [
-        "Returns a paginated list of generation records.",
-        "Authenticated users see only their own records. Admins see all records.",
-        "Supports full-text search by ysid, discrete filters, sorting, and pagination.",
-        "Admins may additionally filter by userId.",
-      ],
+      description:
+        "Authenticated users see only their own records. Admins see all. " +
+        "Supports discrete filters, sorting, and pagination.",
       secured    : true,
       parameters : generationListParams,
       responses  : {
@@ -115,18 +122,22 @@ export const generationPaths = {
     }),
 
     ...patch({
-      summary    : "Update generation result (admin only)",
-      description: "Allows an admin (or the worker callback) to patch status, result URLs, ysid, or error message.",
+      summary    : "Update a generation record",
+      description:
+        "**Admin:** can update status, outputFileKey, errorMessage, completedAt, label, and tags on any record. " +
+        "**User:** can update only label and tags on their own record (403 if they send admin-only fields without being admin).",
       secured    : true,
       body       : jsonBody({
         required: [],
         props   : {
-          status      : enumOf([...GenerationStatusValues]),
-          audioUrl    : str({ example: "https://cdn.example.com/out.mp3" }),
-          videoUrl    : str({ example: "https://cdn.example.com/out.mp4" }),
-          ysid        : str({ example: "ys_abc123" }),
-          errorMessage: str({ example: "Timeout error." }),
-          completedAt : { type: "string", format: "date-time" },
+          // Admin fields
+          status       : enumOf([...GenerationStatusValues]),
+          outputFileKey: str({ example: "generations/output/uuid.mp4" }),
+          errorMessage : str({ example: "Timeout error." }),
+          completedAt  : { type: "string", format: "date-time" },
+          // User fields
+          label        : str({ max: 100, example: "Product demo take 2" }),
+          tags         : { type: "array", items: { type: "string", maxLength: 50 }, maxItems: 20, example: ["demo", "v2"] },
         },
       }),
       responses: {
@@ -136,8 +147,11 @@ export const generationPaths = {
     }),
 
     ...del({
-      summary    : "Delete a generation record (admin only)",
-      description: "Hard-deletes the generation record from the database.",
+      summary    : "Delete a generation record",
+      description:
+        "Hard-deletes the generation record and cleans up all associated R2 files and FileRecords. " +
+        "Owners can delete their own records; admins can delete any. " +
+        "Avatar/audio files are only removed from R2 if they were uploaded for this generation (not shared avatar keys).",
       secured    : true,
       responses  : {
         ...ok("Generation deleted.", generationObject),
@@ -150,12 +164,37 @@ export const generationPaths = {
     ...patch({
       summary    : "Cancel a pending generation job",
       description:
-        "Removes the job from the BullMQ queue and sets status to cancelled. " +
+        "Removes the job from BullMQ and sets status to cancelled. " +
         "Only works while the job is still pending. Owner or admin can cancel.",
       secured  : true,
       responses: {
         ...ok("Generation cancelled.", generationObject),
         ...errors(401, 403, 404, 409),
+      },
+    }),
+  },
+
+  "/generations/{id}/callback": {
+    ...post({
+      summary    : "External API callback — mark generation complete or failed",
+      description:
+        "Called by the external API when processing finishes. " +
+        "Secured by x-api-key header (not a user JWT). " +
+        "success=true: provide outputFileKey (the R2 object key returned by /files/external-upload). " +
+        "success=false: include message with the failure reason. " +
+        "See docs/architecture/external-api-contract.md for the full integration spec.",
+      secured  : false,
+      body     : jsonBody({
+        required: ["success"],
+        props   : {
+          success      : { type: "boolean", example: true },
+          outputFileKey: str({ example: "generations/output/550e8400-e29b-41d4-a716-446655440000.mp4" }),
+          message      : str({ example: "GPU out of memory" }),
+        },
+      }),
+      responses: {
+        ...ok("Callback processed.", {}),
+        ...errors(400, 401, 403, 404),
       },
     }),
   },
