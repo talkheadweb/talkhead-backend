@@ -96,13 +96,15 @@ services:
         "${REDIS_PASSWORD}",
 
         # ── Memory ────────────────────────────────────────────────────────
-        # Cap Redis at 256 MB. When full, evict the least-recently-used keys
-        # that have a TTL set (allkeys-lru would evict everything including
-        # permanent keys like search indexes — avoid that).
+        # Cap Redis at 256 MB. On full, return an error rather than evicting data.
+        # noeviction is required by BullMQ — job keys have no TTL so volatile-lru
+        # would not evict them anyway, but it would silence the BullMQ warning and
+        # protect against edge-case silent job loss if TTL keys ever run out.
+        # Auth/cache keys expire naturally via their TTL — no forced eviction needed.
         "--maxmemory",
         "256mb",
         "--maxmemory-policy",
-        "volatile-lru",
+        "noeviction",
 
         # ── Persistence (AOF) ──────────────────────────────────────────────
         # Append-only file — survives container restarts.
