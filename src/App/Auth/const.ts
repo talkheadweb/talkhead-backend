@@ -3,7 +3,7 @@ import { CookieOptions } from "express";
 // ── Redis TTLs (seconds) ───────────────────────────────────────────────────
 export const AUTH_TTL = {
   REFRESH: 7 * 24 * 60 * 60,  // 7 days
-  ACCESS: 1 * 60,            // 1 min  — keep in sync with JWT_ACCESS_EXP
+  ACCESS: 15 * 60,           // 15 min — keep in sync with JWT_ACCESS_EXP
   VERIFY: 24 * 60 * 60,       // 24 hours
   RESET: 60 * 60,            // 1 hour
   SOCIAL_CODE: 2 * 60,        // 2 min — one-time OAuth claim code
