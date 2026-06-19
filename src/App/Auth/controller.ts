@@ -190,13 +190,13 @@ const updateProfile = catchAsync(async (req: Request, res: Response) => {
   const body = req.body as TUpdateProfileBody;
 
   // Require at least one field — multer may not be active for JSON requests
-  if (!req.file && !body.name) {
-    throw new CustomError("At least one field is required to update (name or profilePicture).", 400);
+  if (!req.file && !body.name && body.country === undefined) {
+    throw new CustomError("At least one field is required to update (name, country, or profilePicture).", 400);
   }
 
   const user = await AuthService.updateProfile(
     userId,
-    { name: body.name },
+    { name: body.name, country: body.country },
     req.file ?? undefined,
   );
 

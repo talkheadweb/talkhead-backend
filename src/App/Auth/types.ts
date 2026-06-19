@@ -19,6 +19,7 @@ export interface IUser {
   isVerified     : boolean;
   isActive       : boolean;         // false = suspended by admin
   profilePictureKey : string | null;  // R2 file key (uploaded) or external https:// URL (OAuth)
+  country           : string | null;
   createdAt      : Date;
   updatedAt      : Date;
 }
@@ -44,7 +45,8 @@ export type TLoginResponse = {
 };
 
 export type TUpdateProfileInput = {
-  name?: string;
+  name   ?: string;
+  country?: string | null;
 };
 
 // Safe user shape — password never included.

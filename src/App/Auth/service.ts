@@ -348,7 +348,8 @@ const updateProfile = async (
 ): Promise<TUserPublic> => {
   const updates: Partial<Record<string, any>> = {};
 
-  if (payload.name !== undefined) updates.name = payload.name;
+  if (payload.name    !== undefined) updates.name    = payload.name;
+  if (payload.country !== undefined) updates.country = payload.country;
 
   if (file) {
     // Fetch the current doc BEFORE uploading the new image.
