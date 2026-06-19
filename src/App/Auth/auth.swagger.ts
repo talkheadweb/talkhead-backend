@@ -138,17 +138,21 @@ export const authPaths: Record<string, object> = {
   "/auth/profile": patch({
     summary   : "Update profile",
     description: [
-      "Updates the authenticated user's profile. Send JSON for a name-only update,",
+      "Updates the authenticated user's profile. Send JSON for text-only updates,",
       "or multipart/form-data to also upload a new profile picture.",
-      "At least one of name / profilePicture must be provided.",
+      "At least one of name / country / profilePicture must be provided.",
       "The old profile picture is automatically deleted from R2 when a new one is uploaded.",
     ],
     secured   : true,
     body      : dualBody(
-      jsonBody({ props: { name: str({ min: 2, max: 50, example: "New Name" }) } }),
+      jsonBody({ props: {
+        name   : str({ min: 2, max: 50, example: "New Name" }),
+        country: str({ example: "us" }),
+      }}),
       multipartBody({
         props: {
           name          : str({ min: 2, max: 50 }),
+          country       : str({ example: "us" }),
           profilePicture: binary({ description: "JPEG / PNG / WebP, max 2 MB" }),
         },
       }),

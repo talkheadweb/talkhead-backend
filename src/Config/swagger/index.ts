@@ -41,6 +41,7 @@ const components = {
         isVerified    : { type: "boolean", example: true },
         isActive      : { type: "boolean", example: true },
         googleId      : { type: "string",  nullable: true, example: null },
+        country       : { type: "string",  nullable: true, example: "us", description: "ISO country code selected by the user" },
         profilePictureKey: { type: "string", nullable: true, example: "avatars/550e8400.webp", description: "Raw R2 file key or external https:// URL stored in DB" },
         profilePictureUrl: { type: "string", nullable: true, example: "https://r2.example.com/avatars/550e8400.webp?X-Amz-Signature=...", description: "Presigned URL computed at response time — use this for display" },
         createdAt     : { type: "string", format: "date-time" },

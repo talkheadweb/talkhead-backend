@@ -39,6 +39,10 @@ const UserSchema = new Schema<IUser>(
       type   : Boolean,
       default: true,   // false = suspended by admin; user cannot log in
     },
+    country: {
+      type   : String,
+      default: null,
+    },
     profilePictureKey: {
       type   : String,
       default: null,

@@ -24,6 +24,7 @@ const updateUserSchema = userIdParam.extend({
     role      : z.nativeEnum(EUserRole).optional(),
     isVerified: z.boolean().optional(),
     isActive  : z.boolean().optional(),
+    country   : z.string().trim().max(100).nullable().optional(),
   }).refine(data => Object.keys(data).length > 0, {
     message: "At least one field is required.",
   }),

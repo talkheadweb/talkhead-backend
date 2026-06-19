@@ -128,7 +128,8 @@ Partially updates a user's profile. At least one field is required. To suspend a
   "email":      "newemail@example.com",
   "role":       "admin",
   "isVerified": true,
-  "isActive":   false
+  "isActive":   false,
+  "country":    "us"
 }
 ```
 
