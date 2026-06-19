@@ -117,6 +117,7 @@ export const adminPaths = {
           role      : enumOf(["user", "admin"]),
           isVerified: bool({ example: true }),
           isActive  : bool({ example: false }),
+          country   : str({ example: "us" }),
         },
       }),
       responses: { ...ok("User updated successfully.", ref("UserPublic")), ...errors(400, 401, 403, 404, 409) },
